@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Y4569 古今时空扩散图</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Y4569 Demo</p>
+          <h1>古今C-Y4569直系人群时空扩散图</h1>
+          <p class="subtitle">按百年时间轴回放 Y4569 自祖先支系到现代样本点的时空扩散。</p>
+        </div>
+        <div class="stat-card">
+          <span>当前时间</span>
+          <strong id="currentTimeLabel">距今 5000 年</strong>
+          <small id="currentModeLabel">古代扩散阶段</small>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="map-panel">
+          <div class="map-frame">
+            <svg id="mapSvg" class="map-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <filter id="glassBlur" x="-20%" y="-20%" width="140%" height="140%">
+                  <feGaussianBlur stdDeviation="2.4" result="soft"></feGaussianBlur>
+                  <feColorMatrix in="soft" type="saturate" values="1.1"></feColorMatrix>
+                </filter>
+                <filter id="pointGlow" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="1.4" result="blur"></feGaussianBlur>
+                  <feMerge>
+                    <feMergeNode in="blur"></feMergeNode>
+                    <feMergeNode in="SourceGraphic"></feMergeNode>
+                  </feMerge>
+                </filter>
+              </defs>
+              <image href="map.jpg" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
+              <g id="focusLayer"></g>
+              <g id="ancientLayer"></g>
+              <g id="pointLayer"></g>
+            </svg>
+          </div>
+          <div class="timeline-card">
+            <div class="controls">
+              <button id="playButton" type="button">播放</button>
+              <button id="jumpModernButton" type="button">跳到现代</button>
+              <span id="tickLabel">第 1 格 / 51 格</span>
+            </div>
+            <input id="timelineSlider" type="range" min="0" max="50" step="1" value="0" />
+            <div class="timeline-marker" id="originMarker">
+              <span class="timeline-marker-dot"></span>
+              <span class="timeline-marker-text" id="originMarkerText">宗族出现起点</span>
+            </div>
+            <div class="axis-labels">
+              <span class="axis-label axis-label-start" style="--pos: 0%;">距今 5000 年</span>
+              <span class="axis-label" style="--pos: 50%;">距今 2500 年</span>
+              <span class="axis-label" style="--pos: 80%;">距今 1000 年</span>
+              <span class="axis-label axis-label-end" style="--pos: 100%;">现代</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="info-panel">
+          <section class="panel-card">
+            <h2>末端单倍群</h2>
+            <div id="branchLegend" class="branch-legend"></div>
+          </section>
+          <section class="panel-card">
+            <h2>末端支系</h2>
+            <div id="sampleList" class="sample-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script src="data/y4569-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
