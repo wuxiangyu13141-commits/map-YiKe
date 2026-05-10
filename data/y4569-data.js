@@ -1084,8 +1084,8 @@ window.Y4569_DATA = {
       "surname": "陈",
       "ethnicity": "蒙古族",
       "location": "中国,辽宁,朝阳",
-      "lat": 40.8175,
-      "lon": 111.7448,
+      "lat": 41.571,
+      "lon": 120.453,
       "family": null,
       "tribe": "尼伦蒙古",
       "distribution": "内蒙古东南部",
@@ -1156,8 +1156,8 @@ window.Y4569_DATA = {
       "surname": "TBD",
       "ethnicity": "哈扎拉人",
       "location": "Pakistan",
-      "lat": 44.892,
-      "lon": 82.0687,
+      "lat": 34.5553,
+      "lon": 69.2075,
       "family": null,
       "tribe": "哈扎拉人",
       "distribution": "阿富汗-巴基斯坦",
@@ -1181,8 +1181,8 @@ window.Y4569_DATA = {
       "surname": "TBD",
       "ethnicity": "哈扎拉人",
       "location": "Pakistan",
-      "lat": 44.892,
-      "lon": 82.0687,
+      "lat": 34.5553,
+      "lon": 69.2075,
       "family": null,
       "tribe": "哈扎拉人",
       "distribution": "阿富汗-巴基斯坦",
@@ -1249,7 +1249,7 @@ window.Y4569_DATA = {
       "radius": 18.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#92D050"
+      "color": "#cc4839"
     },
     {
       "id": "Y185715",
@@ -1269,7 +1269,7 @@ window.Y4569_DATA = {
       "radius": 4.722,
       "distribution": "中国东北中部",
       "regionId": "中国东北中部",
-      "color": "#70AD47"
+      "color": "#7c2221"
     },
     {
       "id": "MF247416",
@@ -1288,7 +1288,7 @@ window.Y4569_DATA = {
       "radius": 2.0,
       "distribution": "中国东北中部",
       "regionId": "中国东北中部",
-      "color": "#4472C4"
+      "color": "#410d19"
     },
     {
       "id": "Y4541",
@@ -1337,7 +1337,7 @@ window.Y4569_DATA = {
       "radius": 18.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#44546A"
+      "color": "#ece48f"
     },
     {
       "id": "Y104500",
@@ -1355,7 +1355,7 @@ window.Y4569_DATA = {
       "radius": 2.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#4f5d75"
+      "color": "#4aa485"
     },
     {
       "id": "BY182928",
@@ -1374,7 +1374,7 @@ window.Y4569_DATA = {
       "radius": 2.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#70AD47"
+      "color": "#8f6831"
     },
     {
       "id": "Y12782",
@@ -1400,7 +1400,7 @@ window.Y4569_DATA = {
       "radius": 18.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#5B9BD5"
+      "color": "#e6f8b8"
     },
     {
       "id": "MF317986",
@@ -1425,7 +1425,7 @@ window.Y4569_DATA = {
       "radius": 18.0,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#7030A0"
+      "color": "#ccdb8f"
     },
     {
       "id": "MV154461",
@@ -1444,7 +1444,7 @@ window.Y4569_DATA = {
       "radius": 7.241,
       "distribution": "蒙古国东北部",
       "regionId": "蒙古国东北部",
-      "color": "#c44536"
+      "color": "#dfb94e"
     },
     {
       "id": "Y20798",
@@ -1463,7 +1463,7 @@ window.Y4569_DATA = {
       "radius": 2.0,
       "distribution": "中国,内蒙古,鄂尔多斯",
       "regionId": "中国,内蒙古,鄂尔多斯",
-      "color": "#92D050"
+      "color": "#a8be40"
     },
     {
       "id": "Y20085",
@@ -1483,7 +1483,7 @@ window.Y4569_DATA = {
       "radius": 8.693,
       "distribution": "哈萨克斯坦东部-新疆西部",
       "regionId": "哈萨克斯坦东部-新疆西部",
-      "color": "#c44536"
+      "color": "#6b8150"
     },
     {
       "id": "Y20087",
@@ -1502,7 +1502,7 @@ window.Y4569_DATA = {
       "radius": 6.52,
       "distribution": "哈萨克斯坦东部-新疆西部",
       "regionId": "哈萨克斯坦东部-新疆西部",
-      "color": "#4472C4"
+      "color": "#5b8267"
     },
     {
       "id": "MF193836",
@@ -1521,7 +1521,7 @@ window.Y4569_DATA = {
       "radius": 2.409,
       "distribution": "河西走廊",
       "regionId": "河西走廊",
-      "color": "#FFC000"
+      "color": "#e9d6b1"
     },
     {
       "id": "ZQ32",
@@ -1541,7 +1541,7 @@ window.Y4569_DATA = {
       "radius": 9.631,
       "distribution": "哈萨克斯坦东部-新疆西部",
       "regionId": "哈萨克斯坦东部-新疆西部",
-      "color": "#44546A"
+      "color": "#e0804d"
     },
     {
       "id": "FGC16605",
@@ -1561,7 +1561,7 @@ window.Y4569_DATA = {
       "radius": 5.499,
       "distribution": "内蒙古东南部",
       "regionId": "内蒙古东南部",
-      "color": "#00B0F0"
+      "color": "#f8d7ce"
     },
     {
       "id": "FGC16593",
@@ -1580,7 +1580,7 @@ window.Y4569_DATA = {
       "radius": 3.757,
       "distribution": "内蒙古东南部",
       "regionId": "内蒙古东南部",
-      "color": "#2d936c"
+      "color": "#bcdb8f"
     },
     {
       "id": "FGC29011",
@@ -1602,7 +1602,7 @@ window.Y4569_DATA = {
       "radius": 6.685,
       "distribution": "内蒙古东南部",
       "regionId": "内蒙古东南部",
-      "color": "#FF6B35"
+      "color": "#5aa3c6"
     },
     {
       "id": "FGC29003",
@@ -1623,7 +1623,7 @@ window.Y4569_DATA = {
       "radius": 7.336,
       "distribution": "内蒙古东南部",
       "regionId": "内蒙古东南部",
-      "color": "#2d936c"
+      "color": "#387ea2"
     },
     {
       "id": "MF274950",
@@ -1642,7 +1642,7 @@ window.Y4569_DATA = {
       "radius": 3.703,
       "distribution": "内蒙古东南部",
       "regionId": "内蒙古东南部",
-      "color": "#c44536"
+      "color": "#225688"
     },
     {
       "id": "Y125520",
@@ -1663,7 +1663,7 @@ window.Y4569_DATA = {
       "radius": 18.0,
       "distribution": "阿富汗-巴基斯坦",
       "regionId": "阿富汗-巴基斯坦",
-      "color": "#C65911"
+      "color": "#d8cbdc"
     },
     {
       "id": "ZQ1049",
@@ -1677,13 +1677,13 @@ window.Y4569_DATA = {
         "HHT1035"
       ],
       "center": [
-        44.892,
-        82.0687
+        34.5553,
+        69.2075
       ],
       "radius": 2.0,
       "distribution": "阿富汗-巴基斯坦",
       "regionId": "阿富汗-巴基斯坦",
-      "color": "#FFC7CE"
+      "color": "#9a92bb"
     },
     {
       "id": "SK1076",
@@ -1696,13 +1696,13 @@ window.Y4569_DATA = {
         "HHT1035"
       ],
       "center": [
-        44.892,
-        82.0687
+        34.5553,
+        69.2075
       ],
       "radius": 2.0,
       "distribution": "阿富汗-巴基斯坦",
       "regionId": "阿富汗-巴基斯坦",
-      "color": "#c44536"
+      "color": "#564e77"
     }
   ]
 };

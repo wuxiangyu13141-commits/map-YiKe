@@ -5,19 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Y4569 古今时空扩散图</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   </head>
   <body>
+    <div class="bg-overlay"></div>
     <div class="app-shell">
       <header class="hero">
-        <div>
+        <div class="hero-title">
           <p class="eyebrow">Y4569 Demo</p>
           <h1>古今C-Y4569直系人群时空扩散图</h1>
-          <p class="subtitle">按百年时间轴回放 Y4569 自祖先支系到现代样本点的时空扩散。</p>
         </div>
         <div class="stat-card">
-          <span>当前时间</span>
-          <strong id="currentTimeLabel">距今 5000 年</strong>
-          <small id="currentModeLabel">古代扩散阶段</small>
+          <div class="stat-card-label">当前时间</div>
+          <div class="stat-card-value" id="currentTimeLabel">距今 5000 年</div>
+          <div class="stat-card-mode" id="currentModeLabel">古代扩散阶段</div>
+          <div class="stat-card-tick" id="tickLabel">第 1 格 / 51 格</div>
         </div>
       </header>
 
@@ -37,20 +39,35 @@
                     <feMergeNode in="SourceGraphic"></feMergeNode>
                   </feMerge>
                 </filter>
+                <filter id="branchGlow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                  <feMerge>
+                    <feMergeNode in="blur"></feMergeNode>
+                    <feMergeNode in="SourceGraphic"></feMergeNode>
+                  </feMerge>
+                </filter>
               </defs>
-              <image href="map.jpg" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
+              <image href="新版地图.png" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
               <g id="focusLayer"></g>
+              <g id="trailLayer"></g>
               <g id="ancientLayer"></g>
               <g id="pointLayer"></g>
+              <g id="branchLabelLayer"></g>
             </svg>
           </div>
           <div class="timeline-card">
             <div class="controls">
               <button id="playButton" type="button">播放</button>
               <button id="jumpModernButton" type="button">跳到现代</button>
-              <span id="tickLabel">第 1 格 / 51 格</span>
             </div>
-            <input id="timelineSlider" type="range" min="0" max="50" step="1" value="0" />
+            <div class="timeline-wrapper">
+              <button id="timelinePlayButton" type="button" class="timeline-play-btn" title="从此时间点开始播放">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M8 5v14l11-7z"></path>
+                </svg>
+              </button>
+              <input id="timelineSlider" type="range" min="0" max="50" step="1" value="0" />
+            </div>
             <div class="timeline-marker" id="originMarker">
               <span class="timeline-marker-dot"></span>
               <span class="timeline-marker-text" id="originMarkerText">宗族出现起点</span>
@@ -65,13 +82,26 @@
         </section>
 
         <aside class="info-panel">
-          <section class="panel-card">
-            <h2>末端单倍群</h2>
+          <!-- 隐藏的旧元素保留以兼容JS -->
+          <div style="display:none">
             <div id="branchLegend" class="branch-legend"></div>
-          </section>
-          <section class="panel-card">
-            <h2>末端支系</h2>
             <div id="sampleList" class="sample-list"></div>
+          </div>
+
+          <!-- 谱系树卡片 -->
+          <section class="panel-card tree-card">
+            <div class="tree-card-header">
+              <h2>世系谱系树</h2>
+              <div class="tree-btn-group">
+                <button id="treeZoomIn" class="tree-ctrl-btn" title="放大">+</button>
+                <button id="treeZoomOut" class="tree-ctrl-btn" title="缩小">−</button>
+                <button id="treeResetView" class="tree-ctrl-btn" title="还原视角">↺</button>
+                <button id="treeExpandBtn" class="tree-ctrl-btn" title="展开全图">&#x2922;</button>
+              </div>
+            </div>
+            <div class="tree-viewport" id="treeViewport">
+              <div id="treeSvg" style="width:100%;height:100%;"></div>
+            </div>
           </section>
         </aside>
       </main>
