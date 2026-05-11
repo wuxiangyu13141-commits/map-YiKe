@@ -31,6 +31,7 @@ const originMarkerText = document.getElementById("originMarkerText");
 
 // 创建样本点悬停弹窗
 const tooltip = document.createElement("div");
+tooltip.id = "tooltip-popup";
 tooltip.style.cssText = `
   position: fixed;
   background: rgba(32, 41, 51, 0.95);
@@ -41,12 +42,19 @@ tooltip.style.cssText = `
   max-width: 200px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(10px);
-  pointer-events: none;
+  pointer-events: auto;
   display: none;
   z-index: 1000;
   line-height: 1.5;
 `;
 document.body.appendChild(tooltip);
+
+// 点击空白处关闭弹窗
+document.addEventListener("click", (e) => {
+  if (!e.target.closest('[data-sample-id]') && !e.target.closest('#tooltip-popup')) {
+    tooltip.style.display = "none";
+  }
+});
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const regionMap = new Map(data.regions.map((region) => [region.id, region]));
@@ -802,11 +810,11 @@ function render() {
     circle.setAttribute("data-sample-branch", sample.branchSegments?.at(-1) || "Y4569");
     circle.setAttribute("data-sample-distribution", sample.distribution || "未注明");
     
-    // 添加悬停事件
-    circle.addEventListener("mouseenter", (event) => {
-      const rect = svg.getBoundingClientRect();
-      const x = event.pageX;
-      const y = event.pageY;
+    // 点击显示弹窗（支持触控屏）
+    circle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const x = event.clientX;
+      const y = event.clientY;
       
       tooltip.innerHTML = `
         <div><strong>${sample.id}</strong></div>
@@ -819,13 +827,18 @@ function render() {
           <div>分布：${sample.distribution || "未注明"}</div>
         </div>
       `;
-      tooltip.style.left = (x + 10) + "px";
-      tooltip.style.top = (y + 10) + "px";
+      // 计算安全位置，防止超出屏幕
       tooltip.style.display = "block";
-    });
-    
-    circle.addEventListener("mouseleave", () => {
-      tooltip.style.display = "none";
+      const tw = tooltip.offsetWidth;
+      const th = tooltip.offsetHeight;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let lx = x + 14;
+      let ly = y + 14;
+      if (lx + tw > vw - 8) lx = x - tw - 14;
+      if (ly + th > vh - 8) ly = y - th - 14;
+      tooltip.style.left = lx + "px";
+      tooltip.style.top = ly + "px";
     });
     
     pointLayer.appendChild(circle);
