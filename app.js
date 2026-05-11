@@ -1175,6 +1175,7 @@ function initGenealogyTree() {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
+      triggerOn: 'none',
       backgroundColor: 'rgba(15, 23, 42, 0.95)',
       borderColor: '#334155',
       borderWidth: 1,
@@ -1215,24 +1216,77 @@ function initGenealogyTree() {
   echartsTreeInstance.setOption(baseOpt);
   setTimeout(() => autoFitTreeZoom(), 200); // 初始化后自动适配
 
+  // 谱系树手动 tooltip
+  const treeTooltip = document.createElement('div');
+  treeTooltip.style.cssText = `
+    position: fixed;
+    background: rgba(15, 23, 42, 0.95);
+    color: #F8FAFC;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid #334155;
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    display: none;
+    z-index: 9999;
+    line-height: 1.6;
+    max-width: 220px;
+  `;
+  document.body.appendChild(treeTooltip);
+  function showTreeTooltip(x, y, html) {
+    treeTooltip.innerHTML = html;
+    treeTooltip.style.display = 'block';
+    const tw = treeTooltip.offsetWidth;
+    const th = treeTooltip.offsetHeight;
+    const lx = (x + 14 + tw > window.innerWidth) ? x - tw - 10 : x + 14;
+    const ly = (y + th > window.innerHeight) ? y - th - 4 : y + 4;
+    treeTooltip.style.left = lx + 'px';
+    treeTooltip.style.top = ly + 'px';
+    treeTooltip._visible = true;
+  }
+  function hideTreeTooltip() { treeTooltip.style.display = 'none'; treeTooltip._visible = false; }
+
   // 点击节点
   echartsTreeInstance.on('click', (params) => {
     const d = params.data;
     if (!d || !d._raw) return;
     if (d._raw.type === 'sample') {
       highlightSampleOnMap(d._raw.sampleData);
+      const s = d._raw.sampleData;
+      showTreeTooltip(params.event.event.clientX, params.event.event.clientY,
+        `${s.id}<br/>族群：${s.ethnicity||'—'}${s.family?'<br/>家族：'+s.family:''}<br/>地点：${s.location||'—'}`);
       return;
     }
     const newHl = (currentTreeHighlight === d.id) ? null : d.id;
+    if (newHl) {
+      showTreeTooltip(params.event.event.clientX, params.event.event.clientY,
+        `${d._raw.id}（${d._raw.age ? `距今${d._raw.age}年` : '现代'}）`);
+    } else {
+      hideTreeTooltip();
+    }
     currentTreeHighlight = newHl;
     currentMapHighlightBranches = newHl ? calcMapHighlightBranches(newHl) : null;
+    // 激活高亮时，跳转时间轴到该分支年代（展开全屏时不跳转）
+    if (!treeState.expanded && newHl && d._raw.age != null && d._raw.age > 0) {
+      const targetBp = d._raw.age;
+      const idx = timeline.reduce((best, bp, i) =>
+        Math.abs(bp - targetBp) < Math.abs(timeline[best] - targetBp) ? i : best
+      , 0);
+      currentIndex = idx;
+      slider.value = String(idx);
+      currentTreeBp = -1; // 强制 renderGenealogyTree 重绘
+    }
     echartsTreeInstance.setOption({ series: [{ id:'familyTree', data: buildTreeOptionData(currentTreeBp, currentTreeHighlight, treeState.expanded) }] }, false);
-    render(); // 重绘地图以应用高亮/变暗效果
+    // 延迟一帧再 render，让 tooltip 有时间先展示
+    setTimeout(() => render(), 0); // 重绘地图以应用高亮/变暗效果（含流线高亮 + 时间跳转）
   });
 
   // 点击空白取消高亮
   echartsTreeInstance.getZr().on('click', (evt) => {
-    if (!evt.target && currentTreeHighlight) {
+    if (!evt.target && (currentTreeHighlight || treeTooltip._visible)) {
+      hideTreeTooltip();
       currentTreeHighlight = null;
       currentMapHighlightBranches = null;
       echartsTreeInstance.setOption({ series: [{ id:'familyTree', data: buildTreeOptionData(currentTreeBp, null, treeState.expanded) }] }, false);
@@ -1302,7 +1356,15 @@ function toggleTreeExpand() {
     card.classList.remove("tree-card--collapsing");
     card.classList.add("tree-card--expanded");
     if (btn) btn.textContent = "⤡";
-    setTimeout(() => { if (echartsTreeInstance) echartsTreeInstance.resize(); }, 60);
+    // 展开时显示完整谱系树（bp=0）
+    currentTreeBp = -1;
+    setTimeout(() => {
+      if (echartsTreeInstance) {
+        echartsTreeInstance.resize();
+        echartsTreeInstance.setOption({ series: [{ id: 'familyTree', data: buildTreeOptionData(0, currentTreeHighlight, true) }] }, false);
+        currentTreeBp = 0;
+      }
+    }, 60);
   } else {
     card.classList.add("tree-card--collapsing");
     // 动画结束后才真正移除 expanded
@@ -1312,8 +1374,11 @@ function toggleTreeExpand() {
       setTimeout(() => {
         if (echartsTreeInstance) {
           echartsTreeInstance.resize();
-          // 归位：重置 zoom 和 pan
-          echartsTreeInstance.setOption({ series: [{ id: 'familyTree', zoom: 1, center: ['50%', '50%'] }] }, false);
+          // 归位：重置 zoom 和 pan，并恢复当前时间对应的谱系树
+          const restoreBp = timeline[currentIndex];
+          currentTreeBp = -1;
+          echartsTreeInstance.setOption({ series: [{ id: 'familyTree', zoom: 1, center: ['50%', '50%'], data: buildTreeOptionData(restoreBp, currentTreeHighlight, false) }] }, false);
+          currentTreeBp = restoreBp;
         }
       }, 30);
     };

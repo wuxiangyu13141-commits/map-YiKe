@@ -438,6 +438,7 @@ input[type="range"] {
   backdrop-filter: blur(14px) !important;
   padding: 18px 14px 14px 14px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .tree-card-header {
@@ -519,7 +520,7 @@ input[type="range"] {
 #treeSvg {
   transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
   display: block;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* ── Expanded Tree Card ──────────────────────────────────────────────────── */
