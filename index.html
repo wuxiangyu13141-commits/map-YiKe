@@ -9,11 +9,16 @@
   </head>
   <body>
     <div class="bg-overlay"></div>
+    <button id="fullscreenBtn" type="button" title="全屏 (F11)">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+      </svg>
+    </button>
     <div class="app-shell">
       <header class="hero">
         <div class="hero-title">
           <p class="eyebrow">Y4569 Demo</p>
-          <h1>古今C-Y4569直系人群时空扩散图</h1>
+          <h1>父系C-Y4569古今时空扩散图</h1>
         </div>
         <div class="stat-card">
           <div class="stat-card-label">当前时间</div>
@@ -26,7 +31,7 @@
       <main class="layout">
         <section class="map-panel">
           <div class="map-frame">
-            <svg id="mapSvg" class="map-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet">
+            <svg id="mapSvg" class="map-svg" viewBox="570 40 370 220" preserveAspectRatio="xMidYMid meet">
               <defs>
                 <filter id="glassBlur" x="-20%" y="-20%" width="140%" height="140%">
                   <feGaussianBlur stdDeviation="2.4" result="soft"></feGaussianBlur>
@@ -39,25 +44,58 @@
                     <feMergeNode in="SourceGraphic"></feMergeNode>
                   </feMerge>
                 </filter>
-                <filter id="branchGlow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="5" result="blur"></feGaussianBlur>
+                <filter id="branchGlow" x="-80%" y="-80%" width="260%" height="260%">
+                  <!-- 外层大范围软光晕（第一层） -->
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="outerSoft"></feGaussianBlur>
+                  <!-- 中层清晰发光（第二层） -->
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="innerGlow"></feGaussianBlur>
+                  <feComponentTransfer in="innerGlow" result="brightInner">
+                    <feFuncR type="linear" slope="1.8"></feFuncR>
+                    <feFuncG type="linear" slope="1.8"></feFuncG>
+                    <feFuncB type="linear" slope="1.8"></feFuncB>
+                  </feComponentTransfer>
                   <feMerge>
-                    <feMergeNode in="blur"></feMergeNode>
+                    <feMergeNode in="outerSoft"></feMergeNode>
+                    <feMergeNode in="brightInner"></feMergeNode>
                     <feMergeNode in="SourceGraphic"></feMergeNode>
                   </feMerge>
+                </filter>
+                <filter id="branchGlowHigh" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur stdDeviation="9" result="blur"></feGaussianBlur>
+                  <feComponentTransfer in="blur" result="brightBlur">
+                    <feFuncR type="linear" slope="1.6"></feFuncR>
+                    <feFuncG type="linear" slope="1.6"></feFuncG>
+                    <feFuncB type="linear" slope="1.6"></feFuncB>
+                  </feComponentTransfer>
+                  <feMerge>
+                    <feMergeNode in="brightBlur"></feMergeNode>
+                    <feMergeNode in="SourceGraphic"></feMergeNode>
+                  </feMerge>
+                </filter>
+                <!-- 人群扩散区域柔化滤镜：椭圆形状 + 边界模糊消散效果 -->
+                <filter id="branchFuzzyEdge" x="-60%" y="-60%" width="220%" height="220%">
+                  <feGaussianBlur in="SourceGraphic" stdDeviation="2"/>
                 </filter>
               </defs>
               <image href="新版地图.png" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
               <g id="focusLayer"></g>
+              <g id="flowLayer"></g>
               <g id="trailLayer"></g>
               <g id="ancientLayer"></g>
               <g id="pointLayer"></g>
               <g id="branchLabelLayer"></g>
+              <g id="regionOverlayLayer"></g>
             </svg>
+            <!-- 地图缩放控件（右上角） -->
+            <div class="map-zoom-controls">
+              <button id="mapZoomIn" type="button" class="tree-ctrl-btn" title="放大">+</button>
+              <button id="mapZoomOut" type="button" class="tree-ctrl-btn" title="缩小">−</button>
+              <button id="mapZoomReset" type="button" class="tree-ctrl-btn" title="还原视角">↺</button>
+            </div>
           </div>
           <div class="timeline-card">
             <div class="controls">
-              <button id="playButton" type="button">播放</button>
+              <button id="playButton" type="button">开始播放</button>
               <button id="jumpModernButton" type="button">跳到现代</button>
             </div>
             <div class="timeline-wrapper">

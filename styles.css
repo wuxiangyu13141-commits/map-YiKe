@@ -167,7 +167,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.9fr);
+  grid-template-columns: minmax(380px, 1.15fr) minmax(0, 1.9fr);
   gap: 16px;
   flex: 1;
   min-height: 0;
@@ -195,6 +195,17 @@ body {
   border: 1px solid var(--panel-border);
   box-shadow: var(--shadow);
   background: rgba(4, 8, 32, 0.6);
+}
+
+/* 地图右上角缩放控件 */
+.map-zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 10;
 }
 
 .map-svg {
@@ -247,14 +258,15 @@ button {
 }
 
 #playButton {
-  color: #fff;
-  background: linear-gradient(135deg, rgba(74, 80, 200, 0.9), rgba(40, 100, 255, 0.85));
-  box-shadow: 0 4px 18px rgba(74, 100, 255, 0.35);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(74, 158, 255, 0.2);
 }
 
 #playButton:hover {
-  box-shadow: 0 6px 24px rgba(74, 100, 255, 0.55);
-  transform: translateY(-1px);
+  background: rgba(74, 158, 255, 0.22);
+  transform: none;
+  box-shadow: none;
 }
 
 #jumpModernButton {
@@ -265,6 +277,34 @@ button {
 
 #jumpModernButton:hover {
   background: rgba(74, 158, 255, 0.22);
+}
+
+#fullscreenBtn {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 9999;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(74, 158, 255, 0.2);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#fullscreenBtn:hover {
+  background: rgba(74, 158, 255, 0.22);
+  transform: scale(1.1);
+}
+
+#fullscreenBtn svg {
+  display: block;
 }
 
 input[type="range"] {
@@ -578,10 +618,38 @@ input[type="range"] {
   }
 }
 
+
+/* 区域我呈吸动画已由 JS breathLoop 持续驱动 ancientLayer.opacity */
+
+/* 新分支入场闪烁 */
+@keyframes regionAppear {
+  0%   { opacity: 0; }
+  8%   { opacity: 1; }
+  25%  { opacity: 0.85; }
+  100% { opacity: 1; }
+}
+
+/* ── 流水路径动画 ─────────────────────────────────────────────────────────── */
+@keyframes flowWater {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -16; }
+}
+@keyframes flowWaterFast {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: -14; }
+}
+.flow-water-anim {
+  animation: flowWater 1.2s linear infinite;
+  pointer-events: none;
+}
+.flow-water-anim-fast {
+  animation: flowWaterFast 0.75s linear infinite;
+  pointer-events: none;
+}
+
 .ancient-shape {
-  fill-opacity: 0.3;
-  stroke-opacity: 0.92;
-  stroke-width: 0.8;
+  /* 每帧重建，脱动由JS层面控制 */
+  pointer-events: none;
 }
 
 .modern-point {
