@@ -1,0 +1,1206 @@
+﻿/* ══════════════════════════════════════════
+   globe.js — Globe初始化 + 数据 + 图表 + 面板
+   ══════════════════════════════════════════ */
+
+/* 检测 Globe.gl 是否加载成功 */
+if (typeof Globe === 'undefined') {
+    var errDiv = document.createElement('div');
+    errDiv.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:999;background:#050510;color:#ff6b6b;font-size:18px;text-align:center;padding:40px;';
+    errDiv.innerHTML = 'Globe.gl 库加载失败<br><span style="font-size:13px;color:#888;margin-top:12px;display:block">请检查网络连接后刷新页面（需能访问 cdn.jsdelivr.net）</span>';
+    document.body.appendChild(errDiv);
+    throw new Error('Globe.gl not loaded');
+}
+
+/* ══════════════════════════════════════════
+   常量与数据
+
+/* ══════════════════════════════════════════
+   数据生成函数
+   ══════════════════════════════════════════ */
+
+/** 全球对外贸易弧线（拖尾流光） */
+function mkTradeArcs(year) {
+    var m = year === 2024 ? 1.1 : year === 2023 ? 1.05 : 1;
+    var arcs = [];
+    tradeDests.forEach(function (d, idx) {
+        var dlat = Math.abs(d.lat - IM[1]), dlng = Math.abs(d.lng - IM[0]);
+        var dist = Math.sqrt(dlat * dlat + dlng * dlng);
+        var autoAlt = 0.02 + dist * 0.0005;
+        var s = comStyle[d.com];
+        var comL = d.com === 'equip' ? '机电设备' : d.com === 'rare' ? '稀土新材料' : '化工原料';
+        /* 流光弧线：短头+长拖尾 */
+        arcs.push({
+            startLat: IM[1], startLng: IM[0], endLat: d.lat, endLng: d.lng,
+            color: [s.c1, s.c2],
+            stroke: 0.65,
+            dashLen: 0.12, dashGap: 0.88,
+            dashInitGap: (idx * 0.13) % 1,
+            speed: (3000 + idx * 40) / m,
+            alt: autoAlt,
+            cat: 'trade', label: d.cn + '·' + d.city, comLabel: comL,
+            destIdx: idx
+        });
+    });
+    return arcs;
+}
+
+/** 国内煤炭弧线（拖尾流光） */
+function mkCoalArcs(year) {
+    var arcs = [];
+    coalDests.forEach(function (d, i) {
+        arcs.push({
+            startLat: IM[1], startLng: IM[0], endLat: d.lat, endLng: d.lng,
+            color: ['rgba(0,255,136,0.75)', 'rgba(0,255,136,0.12)'],
+            stroke: 0.55,
+            dashLen: 0.12, dashGap: 0.88,
+            dashInitGap: (i * 0.18) % 1,
+            speed: 2400 + i * 100,
+            alt: 0.015 + i * 0.001,
+            cat: 'coal', label: d.name, comLabel: '传统能源/煤炭'
+        });
+    });
+    return arcs;
+}
+
+/** 国内绿电/算力弧线（拖尾流光，年份越新越密） */
+function mkGreenArcs(year) {
+    var nc = { 2021:1, 2022:1, 2023:2, 2024:2 }[year];
+    var sb = { 2021:3600, 2022:3200, 2023:2800, 2024:2400 }[year];
+    var gC = [
+        ['rgba(70,240,215,0.72)', 'rgba(130,255,242,0.15)'],
+        ['rgba(55,228,200,0.6)',  'rgba(115,250,232,0.12)']
+    ];
+    var arcs = [];
+    greenDests.forEach(function (d, ti) {
+        for (var i = 0; i < nc; i++) {
+            arcs.push({
+                startLat: IM[1], startLng: IM[0],
+                endLat: d.lat, endLng: d.lng,
+                color: gC[i % 2],
+                stroke: 0.55,
+                dashLen: 0.12, dashGap: 0.88,
+                dashInitGap: (i * 0.5 + ti * 0.1) % 1,
+                speed: sb + i * 800 + ti * 40,
+                alt: 0.015 + ti * 0.001,
+                cat: 'green', label: d.name, comLabel: '绿电/算力'
+            });
+        }
+    });
+    return arcs;
+}
+
+/** 标注点 */
+function mkPoints(year) {
+    var gb = year === 2024 ? 0.3 : year === 2023 ? 0.22 : 0.15;
+    var pts = [];
+
+    // 内蒙古中心
+    pts.push({ lat: IM[1], lng: IM[0], size: 0.55, color: '#00ff88', alt: 0.015, name: '内蒙古', cat: 'origin' });
+
+    // 全球贸易点
+    tradeDests.forEach(function (d) {
+        var comL = d.com === 'equip' ? '机电设备' : d.com === 'rare' ? '稀土新材料' : '化工原料';
+        pts.push({ lat: d.lat, lng: d.lng, size: 0.35 + d.w * 0.06, color: comStyle[d.com].pt, alt: 0.008, name: d.cn + '·' + d.city, cat: 'trade', com: d.com, comLabel: comL });
+    });
+
+    // 国内煤炭
+    coalDests.forEach(function (d) {
+        pts.push({ lat: d.lat, lng: d.lng, size: 0.4, color: '#00ff88', alt: 0.008, name: d.name, cat: 'coal' });
+    });
+
+    // 国内绿电
+    greenDests.forEach(function (d) {
+        pts.push({ lat: d.lat, lng: d.lng, size: 0.38 + gb, color: '#40d8b8', alt: 0.008, name: d.name, cat: 'green' });
+    });
+
+    return pts;
+}
+
+/** HTML标签元素（替代SpriteText，解决中文乱码） */
+function mkHtmlEls() {
+    var els = [];
+    els.push({ lat: IM[1], lng: IM[0], name: '内蒙古', color: '#00ff88', big: true, alt: 0.04, cat: 'origin' });
+
+    tradeDests.forEach(function (d) {
+        els.push({ lat: d.lat, lng: d.lng, name: d.cn, color: comStyle[d.com].lb, big: false, alt: 0.02, cat: 'trade', com: d.com });
+    });
+
+    coalDests.forEach(function (d) {
+        els.push({ lat: d.lat, lng: d.lng, name: d.name, color: '#00ff88', big: false, alt: 0.018, cat: 'coal' });
+    });
+
+    greenDests.forEach(function (d) {
+        els.push({ lat: d.lat, lng: d.lng, name: d.name, color: '#66ffaa', big: false, alt: 0.018, cat: 'green' });
+    });
+
+    return els;
+}
+
+function createHtmlEl(d) {
+    var el = document.createElement('div');
+    el.style.cssText = 'color:' + d.color + ';font-family:"Noto Sans SC","Microsoft YaHei",sans-serif;' +
+        'font-size:' + (d.big ? '13px' : '10px') + ';font-weight:' + (d.big ? '700' : '500') + ';' +
+        'text-shadow:0 0 6px ' + d.color + ',0 1px 3px rgba(0,0,0,0.8);' +
+        'white-space:nowrap;pointer-events:auto;text-align:center;letter-spacing:0.06em;padding:3px 6px;cursor:inherit;';
+    el.textContent = d.name;
+    el.addEventListener('mouseenter', function() {
+        if (d.cat === 'origin') return;
+        labelHovered = true;
+        var cat = d.cat || 'green';
+        var cl = d.cat === 'trade' ? (d.com === 'equip' ? '机电设备' : d.com === 'rare' ? '稀土新材料' : '化工原料') :
+                 d.cat === 'coal' ? '传统能源/煤炭' : '绿电/算力';
+        var labelName = d.cat === 'trade' ? (function() {
+            for (var i = 0; i < tradeDests.length; i++) {
+                if (tradeDests[i].cn === d.name) return tradeDests[i].cn + '·' + tradeDests[i].city;
+            }
+            return d.name;
+        })() : d.name;
+        tipShow(labelName, curYear, cat, cl);
+    });
+    el.addEventListener('mouseleave', function() { labelHovered = false; tipHide(); });
+    el.addEventListener('click', function() {
+        if (d.cat === 'origin') return;
+        var cat = d.cat || 'green';
+        var cl = d.cat === 'trade' ? (d.com === 'equip' ? '机电设备' : d.com === 'rare' ? '稀土新材料' : '化工原料') :
+                 d.cat === 'coal' ? '传统能源/煤炭' : '绿电/算力';
+        var labelName = d.cat === 'trade' ? (function() {
+            for (var i = 0; i < tradeDests.length; i++) {
+                if (tradeDests[i].cn === d.name) return tradeDests[i].cn + '·' + tradeDests[i].city;
+            }
+            return d.name;
+        })() : d.name;
+        tipShow(labelName, curYear, cat, cl);
+        /* 点击标签打开详情/能源面板 */
+        if (d.cat === 'trade') {
+            for (var j = 0; j < tradeDests.length; j++) {
+                if (tradeDests[j].cn === d.name) { showDetailPanel(tradeDests[j]); break; }
+            }
+        } else if (d.cat === 'coal') {
+            var _dc = findCoalDest(d.name);
+            if (_dc) showEnergyPanel(_dc, 'coal');
+        } else if (d.cat === 'green') {
+            var _dg = findGreenDest(d.name);
+            if (_dg) showEnergyPanel(_dg, 'green');
+        }
+    });
+    return el;
+}
+
+/** 脉冲环 */
+function mkRings(year) {
+    var r = [];
+    /* 内蒙古主脉冲（双层） */
+    r.push({ lat: IM[1], lng: IM[0], maxR: year >= 2024 ? 6 : 4.5, propagationSpeed: 1.2, repeatPeriod: year >= 2024 ? 600 : 900 });
+    r.push({ lat: IM[1], lng: IM[0], maxR: year >= 2024 ? 3.5 : 2.5, propagationSpeed: 0.8, repeatPeriod: year >= 2024 ? 1200 : 1600 });
+    if (year >= 2022) {
+        r.push({ lat: 31.2, lng: 121.4, maxR: 2.8, propagationSpeed: 0.8, repeatPeriod: 1100 });
+        r.push({ lat: 23.1, lng: 113.2, maxR: 2.5, propagationSpeed: 0.8, repeatPeriod: 1200 });
+    }
+    if (year >= 2023) {
+        r.push({ lat: 22.55, lng: 114.1, maxR: 2.2, propagationSpeed: 0.7, repeatPeriod: 1300 });
+        r.push({ lat: 39.9, lng: 116.4, maxR: 2.0, propagationSpeed: 0.7, repeatPeriod: 1400 });
+    }
+    return r;
+}
+
+/* ══════════════════════════════════════════
+   Tooltip（使用国家统计局真实数据）
+   ══════════════════════════════════════════ */
+var tip = document.getElementById('tip');
+var mouseX = 0, mouseY = 0;
+document.addEventListener('mousemove', function (e) { mouseX = e.clientX; mouseY = e.clientY; });
+
+function tipShow(name, year, cat, comLabel) {
+    var yi = year - 2021;
+    var g = R.gdp[year], e = R.employ[year], w = R.wages[year];
+    var inc = R.income[year], f = R.fiscal[year], fd = R.fiscalDetail[year];
+    var h = '';
+    if (cat === 'trade') {
+        var dd = null;
+        for (var i = 0; i < tradeDests.length; i++) {
+            if (tradeDests[i].cn + '·' + tradeDests[i].city === name) { dd = tradeDests[i]; break; }
+        }
+        if (dd) {
+            var ev = dd.exp[yi], iv = dd.imp[yi], tv = (ev + iv).toFixed(1);
+            h = '<div class="tip-head"><h4>' + comLabel + ' → ' + dd.cn + '</h4>' +
+                '<div class="tip-sub">内蒙古 ' + year + ' 年对' + dd.cn + '双边贸易</div></div>' +
+                '<div class="tip-body">' +
+                '<div class="tip-row"><span class="tip-k">双边贸易总额</span><span class="tip-v">' + tv + ' 亿美元</span></div>' +
+                '<div class="tip-row"><span class="tip-k">对' + dd.cn + '出口</span><span class="tip-v">' + ev + ' 亿美元</span></div>' +
+                '<div class="tip-row"><span class="tip-k">自' + dd.cn + '进口</span><span class="tip-v">' + iv + ' 亿美元</span></div>' +
+                '<div class="tip-row"><span class="tip-k">主要出口商品</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dd.goods + '</span></div>' +
+                '<div class="tip-row"><span class="tip-k">主要进口商品</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dd.impG + '</span></div>';
+            var tradeBalance = (ev - iv).toFixed(1);
+            var balSign = ev >= iv ? '+' : '';
+            var expPct = (ev / (R.trade[year].exportK / 100000) * 100).toFixed(1);
+            var impPct = (iv / (R.trade[year].importK / 100000) * 100).toFixed(1);
+            var expYoy = yi > 0 ? ((ev / dd.exp[yi-1] - 1) * 100).toFixed(1) : '--';
+            var impYoy = yi > 0 ? ((iv / dd.imp[yi-1] - 1) * 100).toFixed(1) : '--';
+                h += '<div class="tip-grid">' +
+                '<div class="tip-card"><span class="tip-k">贸易差额</span><span class="tip-v">' + balSign + tradeBalance + ' 亿$</span></div>' +
+                '<div class="tip-card"><span class="tip-k">出口占全区比</span><span class="tip-v">' + expPct + '%</span></div>' +
+                '<div class="tip-card"><span class="tip-k">出口同比</span><span class="tip-v">' + (yi > 0 ? (expYoy > 0 ? '+' : '') + expYoy + '%' : '基年') + '</span></div>' +
+                '<div class="tip-card"><span class="tip-k">进口同比</span><span class="tip-v">' + (yi > 0 ? (impYoy > 0 ? '+' : '') + impYoy + '%' : '基年') + '</span></div>' +
+                '</div></div>';
+        }
+    } else if (cat === 'coal') {
+        var dc = null;
+        for (var j = 0; j < coalDests.length; j++) {
+            if (coalDests[j].name === name) { dc = coalDests[j]; break; }
+        }
+        if (dc) {
+            var coalYoy = yi > 0 ? ((dc.coal[yi] / dc.coal[yi-1] - 1) * 100).toFixed(1) : '--';
+            var coalShare = (dc.coal[yi] / coalTotal[year] * 100).toFixed(1);
+            h = '<div class="tip-head"><h4>煤炭供给 → ' + dc.name + '（' + dc.prov + '）</h4>' +
+                '<div class="tip-sub">内蒙古 ' + year + ' 年向' + dc.name + '输煤数据</div></div>' +
+                '<div class="tip-body">' +
+                '<div class="tip-row"><span class="tip-k">年输煤量</span><span class="tip-v">' + dc.coal[yi] + ' 万吨</span></div>' +
+                '<div class="tip-row"><span class="tip-k">运输通道</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dc.route + '</span></div>' +
+                '<div class="tip-row"><span class="tip-k">主要用途</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dc.use + '</span></div>' +
+                '<div class="tip-grid">' +
+                '<div class="tip-card"><span class="tip-k">占总输煤量</span><span class="tip-v">' + coalShare + '%</span></div>' +
+                '<div class="tip-card"><span class="tip-k">输煤同比</span><span class="tip-v">' + (yi > 0 ? (coalYoy > 0 ? '+' : '') + coalYoy + '%' : '基年') + '</span></div>' +
+                '<div class="tip-card"><span class="tip-k">坑口均价</span><span class="tip-v">' + dc.price[yi] + ' 元/吨</span></div>' +
+                '<div class="tip-card"><span class="tip-k">受端占比</span><span class="tip-v">' + dc.share[yi] + '%</span></div>' +
+                '</div></div>';
+        }
+    } else {
+        var dg = null;
+        for (var k = 0; k < greenDests.length; k++) {
+            if (greenDests[k].name === name) { dg = greenDests[k]; break; }
+        }
+        if (dg) {
+            var pwrYoy = yi > 0 ? ((dg.power[yi] / dg.power[yi-1] - 1) * 100).toFixed(1) : '--';
+            var pwrShare = (dg.power[yi] / greenTotal[year] * 100).toFixed(1);
+            h = '<div class="tip-head"><h4>绿电/算力 → ' + dg.name + '（' + dg.prov + '）</h4>' +
+                '<div class="tip-sub">内蒙古 ' + year + ' 年向' + dg.name + '绿色电力输送</div></div>' +
+                '<div class="tip-body">' +
+                '<div class="tip-row"><span class="tip-k">年送电量</span><span class="tip-v">' + dg.power[yi] + ' 亿千瓦时</span></div>' +
+                '<div class="tip-row"><span class="tip-k">输电通道</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dg.route + '</span></div>' +
+                '<div class="tip-row"><span class="tip-k">受端用途</span><span class="tip-v" style="font-family:inherit;font-size:11px">' + dg.use + '</span></div>' +
+                '<div class="tip-grid">' +
+                '<div class="tip-card"><span class="tip-k">占总送电量</span><span class="tip-v">' + pwrShare + '%</span></div>' +
+                '<div class="tip-card"><span class="tip-k">送电同比</span><span class="tip-v">' + (yi > 0 ? (pwrYoy > 0 ? '+' : '') + pwrYoy + '%' : '基年') + '</span></div>' +
+                '<div class="tip-card"><span class="tip-k">' + dg.name + '装机</span><span class="tip-v">' + dg.cap[yi] + ' 万kW</span></div>' +
+                '<div class="tip-card"><span class="tip-k">绿电占比</span><span class="tip-v">' + dg.greenPct[yi] + '%</span></div>' +
+                '</div></div>';
+        }
+    }
+    if (!h) h = '<div class="tip-head"><h4>' + (comLabel||'') + ' · ' + name + '</h4></div>';
+    tip.innerHTML = h;
+    tip.classList.add('on');
+    positionTip();
+}
+
+function positionTip() {
+    var tw = 380, th = 280;
+    var x = mouseX + 18;
+    var y = mouseY + 18;
+    if (x + tw > window.innerWidth - 12) x = mouseX - tw - 12;
+    if (y + th > window.innerHeight - 12) y = mouseY - th - 12;
+    tip.style.left = Math.max(8, x) + 'px';
+    tip.style.top = Math.max(8, y) + 'px';
+}
+
+function tipHide() { tip.classList.remove('on'); }
+
+/* ══════════════════════════════════════════
+   Globe 初始化（纯标准 API，不额外加载 Three.js）
+   ══════════════════════════════════════════ */
+
+var world = Globe()(document.getElementById('globeViz'))
+    .backgroundColor('rgba(0,0,0,0)')
+    .showGlobe(true)
+    .showAtmosphere(true)
+    .atmosphereColor('rgba(255,255,255,0.15)')
+    .atmosphereAltitude(0.08)
+    /* ── 路径轮廓（线条渲染，远轻于polygon mesh）── */
+    .pathsData([])
+    .pathPoints('coords')
+    .pathPointLat(function(p){return p[1]})
+    .pathPointLng(function(p){return p[0]})
+    .pathColor(function(d){return d.color})
+    .pathStroke(function(d){return d.stroke||0.4})
+    .pathTransitionDuration(0)
+    /* ── 标注点 ── */
+    .pointsMerge(false)
+    .pointResolution(12)
+    .pointColor(function (d) { return d.color; })
+    .pointAltitude(function (d) { return d.alt; })
+    .pointRadius(function (d) { return d.size; })
+    /* ── 弧线 ── */
+    .arcColor(function (d) { return d.color; })
+    .arcStroke(function (d) { return d.stroke; })
+    .arcAltitude(function (d) { return d.alt; })
+    .arcDashLength(function (d) { return d.dashLen; })
+    .arcDashGap(function (d) { return d.dashGap; })
+    .arcDashAnimateTime(function (d) { return d.speed; })
+    .arcDashInitialGap(function (d) { return d.dashInitGap || 0; })
+    /* ── HTML标签（支持中文）── */
+    .htmlElementsData(mkHtmlEls())
+    .htmlElement(function (d) { return createHtmlEl(d); })
+    .htmlLat(function (d) { return d.lat; })
+    .htmlLng(function (d) { return d.lng; })
+    .htmlAltitude(function (d) { return d.alt; })
+    .htmlTransitionDuration(800)
+    /* ── 脉冲环 ── */
+    .ringColor(function () { return function (t) { return 'rgba(0,255,136,' + Math.pow(1 - t, 1.6) * 0.88 + ')'; }; })
+    .ringMaxRadius(function (d) { return d.maxR; })
+    .ringPropagationSpeed(function (d) { return d.propagationSpeed; })
+    .ringRepeatPeriod(function (d) { return d.repeatPeriod; });
+
+/* ── 控制 ── */
+world.controls().autoRotate = false;
+world.controls().enablePan = false;
+world.controls().minDistance = 170;
+world.controls().maxDistance = 380;
+world.pointOfView({ lat: 35, lng: 105, altitude: 2.0 }, 0);
+
+/* ── 视角切换 ── */
+var btnDomestic = document.getElementById('btnDomestic');
+var btnGlobal   = document.getElementById('btnGlobal');
+btnDomestic.addEventListener('click', function() {
+    if (this.classList.contains('active')) return;
+    btnGlobal.classList.remove('active');
+    this.classList.add('active');
+    world.pointOfView({ lat: 40.5, lng: 111, altitude: 0.55 }, 1200);
+});
+btnGlobal.addEventListener('click', function() {
+    if (this.classList.contains('active')) return;
+    btnDomestic.classList.remove('active');
+    this.classList.add('active');
+    world.pointOfView({ lat: 35, lng: 105, altitude: 2.0 }, 1200);
+});
+
+/* ── 云层（单独设置，不放在初始化链中以避免断链）── */
+try {
+    /* 云层禁用 — 保持纯净线框感 */
+} catch(e) { console.log('[Globe] clouds not supported:', e.message); }
+
+/* ── 线框地球：DataV风格经纬网格 ── */
+var _wireGridPaths = [];
+try {
+    var scene = world.scene();
+    var globeGroup = scene.children.find(function(c) { return c.type === 'Group'; });
+    if (globeGroup) {
+        /* 球体 → 纯黑微光底色，让线框成为主角 */
+        globeGroup.traverse(function(child) {
+            if (child.isMesh && child.material) {
+                child.material.transparent = true;
+                child.material.opacity = 0.03;
+                child.material.color = { r: 0.02, g: 0.06, b: 0.04 };
+                child.material.emissive = { r: 0.005, g: 0.015, b: 0.008 };
+                if (child.material.map) child.material.map = null;
+                if (child.material.bumpMap) child.material.bumpMap = null;
+                child.material.needsUpdate = true;
+            }
+        });
+    }
+
+    /* ═══ 多层线框网格 — 粗疏 + 细密 双网格 ═══ */
+
+    /* 第一层：粗疏主网格 — 每30度，较亮，较粗 */
+    var majorColor = 'rgba(0,255,136,0.10)';
+    var majorStroke = 0.25;
+    for (var mLon = 0; mLon < 12; mLon++) {
+        var deg = mLon * 30 - 180;
+        var c = [];
+        for (var j = 0; j <= 60; j++) c.push([deg, j * 3 - 90]);
+        _wireGridPaths.push({ coords: c, color: majorColor, stroke: majorStroke, isGrid: true });
+    }
+    for (var mLat = 1; mLat < 6; mLat++) {
+        var lat = mLat * 30 - 90;
+        var c2 = [];
+        for (var j2 = 0; j2 <= 72; j2++) c2.push([j2 * 5 - 180, lat]);
+        _wireGridPaths.push({ coords: c2, color: majorColor, stroke: majorStroke, isGrid: true });
+    }
+    /* 赤道特殊高亮 */
+    var eqCoords = [];
+    for (var eq = 0; eq <= 72; eq++) eqCoords.push([eq * 5 - 180, 0]);
+    _wireGridPaths.push({ coords: eqCoords, color: 'rgba(0,255,136,0.18)', stroke: 0.35, isGrid: true });
+
+    /* 第二层：细密辅网格 — 每10度，极暗极细 */
+    var minorColor = 'rgba(0,255,136,0.03)';
+    var minorStroke = 0.08;
+    for (var sLon = 0; sLon < 36; sLon++) {
+        if (sLon % 3 === 0) continue; /* 跳过主网格已有的 */
+        var sd = sLon * 10 - 180;
+        var sc = [];
+        for (var sj = 0; sj <= 60; sj++) sc.push([sd, sj * 3 - 90]);
+        _wireGridPaths.push({ coords: sc, color: minorColor, stroke: minorStroke, isGrid: true });
+    }
+    for (var sLat = 1; sLat < 18; sLat++) {
+        if (sLat % 3 === 0) continue;
+        var sl = sLat * 10 - 90;
+        var slc = [];
+        for (var slj = 0; slj <= 72; slj++) slc.push([slj * 5 - 180, sl]);
+        _wireGridPaths.push({ coords: slc, color: minorColor, stroke: minorStroke, isGrid: true });
+    }
+
+    /* 第三层：北纬40°高亮圈（内蒙古纬度带） */
+    var imLatCoords = [];
+    for (var il = 0; il <= 72; il++) imLatCoords.push([il * 5 - 180, 42]);
+    _wireGridPaths.push({ coords: imLatCoords, color: 'rgba(0,255,136,0.22)', stroke: 0.4, isGrid: true });
+
+    /* 第四层：装饰性对角斜线 — X形交叉线（独特标识） */
+    var diagColor = 'rgba(0,255,136,0.04)';
+    var diag1 = [], diag2 = [];
+    for (var di = 0; di <= 60; di++) {
+        var t = di / 60;
+        diag1.push([-180 + t * 360, -90 + t * 180]);
+        diag2.push([-180 + t * 360, 90 - t * 180]);
+    }
+    _wireGridPaths.push({ coords: diag1, color: diagColor, stroke: 0.12, isGrid: true });
+    _wireGridPaths.push({ coords: diag2, color: diagColor, stroke: 0.12, isGrid: true });
+
+    world.pathsData(_wireGridPaths);
+} catch(e) { console.log('[Globe] wireframe grid:', e.message); }
+
+/* ── 球体边缘辉光：用CSS实现内蒙古纬度扫描线效果 ── */
+try {
+    var globeEl = document.getElementById('globeViz');
+    var scanOverlay = document.createElement('div');
+    scanOverlay.id = 'globeScanline';
+    scanOverlay.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1;' +
+        'background:radial-gradient(ellipse 52% 52% at 50% 50%,' +
+        'transparent 45%,rgba(0,255,136,0.03) 48%,rgba(0,255,136,0.08) 49.5%,' +
+        'rgba(0,255,136,0.03) 51%,transparent 54%);' +
+        'mix-blend-mode:screen;opacity:0.7;';
+    globeEl.appendChild(scanOverlay);
+} catch(e) {}
+
+/* ── 尺寸 ── */
+world.width(window.innerWidth);
+world.height(window.innerHeight);
+window.addEventListener('resize', function () {
+    world.width(window.innerWidth);
+    world.height(window.innerHeight);
+});
+
+/* ══════════════════════════════════════════
+   年份切换（时间轴联动核心）+ 图层过滤
+   ══════════════════════════════════════════ */
+var curYear = 2021;
+/* 隐藏的类别集合 */
+var hiddenCats = {};
+/* 点/标签悬停优先级：当悬停在点或标签上时，忽略弧线hover */
+var pointHovered = false;
+var labelHovered = false;
+
+
+function applyYear(year) {
+    curYear = year;
+    document.getElementById('yearValue').textContent = year;
+    /* 滑块进度条 + 刻度高亮 */
+    var pct = ((year - 2021) / 3 * 100).toFixed(1);
+    document.querySelector('.rng-track').style.setProperty('--slider-pct', pct + '%');
+    var ticks = document.querySelectorAll('.ticks span');
+    for (var ti = 0; ti < ticks.length; ti++) {
+        ticks[ti].className = (2021 + ti <= year) ? 'tick-active' : '';
+    }
+    if (currentPage === 2) {
+        document.getElementById('yearNote').textContent = indYearTexts[year];
+        updateIndustryYear(year);
+    } else if (currentPage === 3) {
+        document.getElementById('yearNote').textContent = lhYearTexts[year];
+        updateLhYear(year);
+        updateGdpChart(year);
+    } else if (currentPage === 4) {
+        document.getElementById('yearNote').textContent = talentYearTexts[year] || '';
+        updateTalentYear(year);
+    } else {
+        document.getElementById('yearNote').textContent = yearTexts[year];
+    }
+    refreshArcs();
+    updateChart(year);
+    updateStats(year);
+    updateRings(year);
+}
+
+/* 缓存已加载的 paths（防止被清空）— 初始包含线框网格 */
+var loadedPaths = _wireGridPaths.length > 0 ? _wireGridPaths.slice() : null;
+
+function refreshArcs() {
+    var arcs = mkTradeArcs(curYear).concat(mkCoalArcs(curYear)).concat(mkGreenArcs(curYear));
+    var pts = mkPoints(curYear);
+    var rng = mkRings(curYear);
+    var labels = mkHtmlEls();
+
+    /* 过滤被隐藏的类别 */
+    if (Object.keys(hiddenCats).length > 0) {
+        arcs = arcs.filter(function(a) {
+            if (a.cat === 'trade') return !hiddenCats[a.comLabel === '机电设备' ? 'equip' : a.comLabel === '稀土新材料' ? 'rare' : 'chem'];
+            return !hiddenCats[a.cat];
+        });
+        pts = pts.filter(function(p) {
+            if (p.cat === 'origin') return true;
+            if (p.cat === 'trade') return !hiddenCats[p.com];
+            return !hiddenCats[p.cat];
+        });
+        labels = labels.filter(function(l) {
+            if (l.cat === 'origin') return true;
+            if (l.cat === 'trade') return !hiddenCats[l.com];
+            return !hiddenCats[l.cat];
+        });
+    }
+
+    world
+        .arcsData(arcs)
+        .pointsData(pts)
+        .htmlElementsData(labels)
+        .ringsData(rng);
+
+    /* 确保 paths 不丢失 */
+    if (loadedPaths) world.pathsData(loadedPaths);
+}
+
+/* 确保球体 ready 后再灌数据 */
+world.onGlobeReady(function () {
+    applyYear(2021);
+
+    /* GeoJSON/TopoJSON → paths 转换（提取坐标为轻量线条） */
+    function geo2paths(features, color, stroke) {
+        var paths = [];
+        features.forEach(function(f) {
+            var g = f.geometry; if (!g) return;
+            if (g.type === 'LineString') {
+                paths.push({coords: g.coordinates, color: color, stroke: stroke});
+            } else if (g.type === 'MultiLineString') {
+                g.coordinates.forEach(function(line) {
+                    paths.push({coords: line, color: color, stroke: stroke});
+                });
+            } else if (g.type === 'Polygon') {
+                g.coordinates.forEach(function(ring) {
+                    paths.push({coords: ring, color: color, stroke: stroke});
+                });
+            } else if (g.type === 'MultiPolygon') {
+                g.coordinates.forEach(function(p) {
+                    p.forEach(function(ring) {
+                        paths.push({coords: ring, color: color, stroke: stroke});
+                    });
+                });
+            }
+        });
+        return paths;
+    }
+
+    /* 加载：世界国家轮廓 + 中国各省边界 */
+    var provCodes = [
+        110000,120000,130000,140000,150000,210000,220000,230000,
+        310000,320000,330000,340000,350000,360000,370000,410000,
+        420000,430000,440000,450000,460000,500000,510000,520000,
+        530000,540000,610000,620000,630000,640000,650000
+    ];
+    var worldFetch = fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+        .then(function(r){return r.json()}).catch(function(){return null});
+    var provFetches = provCodes.map(function(code) {
+        return fetch('https://geo.datav.aliyun.com/areas_v3/bound/' + code + '.json')
+            .then(function(r){return r.json()}).catch(function(){return null});
+    });
+
+    Promise.all([worldFetch].concat(provFetches)).then(function(results) {
+        var allPaths = [];
+
+        /* 世界国家轮廓 */
+        var topoData = results[0];
+        if (topoData && typeof topojson !== 'undefined') {
+            /* 先尝试 mesh（最轻量），再 fallback 到 feature */
+            try {
+                var obj = topoData.objects.countries || topoData.objects.land;
+                var mesh = topojson.mesh(topoData, obj);
+                allPaths = allPaths.concat(geo2paths([{geometry: mesh}], 'rgba(0,255,136,0.2)', 0.3));
+                console.log('[Globe] world mesh paths:', allPaths.length);
+            } catch(e1) {
+                console.warn('[Globe] mesh failed, trying feature...', e1);
+                try {
+                    var obj2 = topoData.objects.countries || topoData.objects.land;
+                    var fc = topojson.feature(topoData, obj2);
+                    if (fc && fc.features) {
+                        allPaths = allPaths.concat(geo2paths(fc.features, 'rgba(0,255,136,0.2)', 0.3));
+                        console.log('[Globe] world feature paths:', allPaths.length);
+                    }
+                } catch(e2) { console.error('[Globe] feature also failed', e2); }
+            }
+        } else {
+            console.warn('[Globe] topoData:', !!topoData, 'topojson:', typeof topojson);
+        }
+
+        /* 中国各省边界 */
+        for (var i = 1; i < results.length; i++) {
+            var data = results[i];
+            if (data && data.features) {
+                data.features.forEach(function(f) {
+                    var isIM = f.properties && (f.properties.adcode === 150000 || f.properties.name === '内蒙古自治区');
+                    var c = isIM ? 'rgba(0,255,136,0.5)' : 'rgba(0,255,136,0.15)';
+                    var s = isIM ? 0.8 : 0.35;
+                    allPaths = allPaths.concat(geo2paths([f], c, s));
+                });
+            }
+        }
+
+        if (allPaths.length > 0) {
+            loadedPaths = _wireGridPaths.concat(allPaths);
+            world.pathsData(loadedPaths);
+        }
+    });
+});
+
+/* ── 时间轴滑块 ── */
+document.getElementById('yearSlider').addEventListener('input', function (e) {
+    applyYear(Number(e.target.value));
+});
+
+/* ── 悬停 Tooltip（点 > 标签 > 弧线 优先级）── */
+world.onPointHover(function (pt) {
+    if (!pt) {
+        pointHovered = false;
+        if (!labelHovered) tipHide();
+        if (typeof glow !== 'undefined') glow.classList.remove('hover');
+        return;
+    }
+    if (pt.cat === 'origin') { pointHovered = false; return; }
+    pointHovered = true;
+    if (typeof glow !== 'undefined') glow.classList.add('hover');
+    var cat = pt.cat || 'green';
+    var cl = pt.comLabel || (cat === 'coal' ? '传统能源/煤炭' : '绿电/算力');
+    tipShow(pt.name, curYear, cat, cl);
+});
+
+world.onArcHover(function (arc) {
+    if (pointHovered || labelHovered) return;
+    if (!arc) {
+        tipHide();
+        if (typeof glow !== 'undefined') glow.classList.remove('hover');
+        return;
+    }
+    if (typeof glow !== 'undefined') glow.classList.add('hover');
+    tipShow(arc.label, curYear, arc.cat, arc.comLabel);
+});
+
+/* ── 点击触发右侧详情面板 ── */
+function findTradeDestByLabel(label) {
+    for (var i = 0; i < tradeDests.length; i++) {
+        if (tradeDests[i].cn + '·' + tradeDests[i].city === label || tradeDests[i].cn === label) return tradeDests[i];
+    }
+    return null;
+}
+
+function findCoalDest(name) {
+    for (var i = 0; i < coalDests.length; i++) { if (coalDests[i].name === name) return coalDests[i]; }
+    return null;
+}
+function findGreenDest(name) {
+    for (var i = 0; i < greenDests.length; i++) { if (greenDests[i].name === name) return greenDests[i]; }
+    return null;
+}
+
+world.onArcClick(function (arc) {
+    if (!arc) return;
+    if (arc.cat === 'trade') {
+        var dd = findTradeDestByLabel(arc.label);
+        if (dd) showDetailPanel(dd);
+    } else if (arc.cat === 'coal') {
+        var dc = findCoalDest(arc.label);
+        if (dc) showEnergyPanel(dc, 'coal');
+    } else if (arc.cat === 'green') {
+        var dg = findGreenDest(arc.label);
+        if (dg) showEnergyPanel(dg, 'green');
+    }
+    tipShow(arc.label, curYear, arc.cat, arc.comLabel);
+});
+world.onPointClick(function (pt) {
+    if (!pt || pt.cat === 'origin') return;
+    if (pt.cat === 'trade') {
+        var dd = findTradeDestByLabel(pt.name);
+        if (dd) showDetailPanel(dd);
+    } else if (pt.cat === 'coal') {
+        var dc = findCoalDest(pt.name);
+        if (dc) showEnergyPanel(dc, 'coal');
+    } else if (pt.cat === 'green') {
+        var dg = findGreenDest(pt.name);
+        if (dg) showEnergyPanel(dg, 'green');
+    }
+    var cat = pt.cat || 'green';
+    var cl = pt.comLabel || (cat === 'coal' ? '传统能源/煤炭' : '绿电/算力');
+    tipShow(pt.name, curYear, cat, cl);
+});
+
+document.getElementById('globeViz').addEventListener('mousemove', function () {
+    if (tip.classList.contains('on')) positionTip();
+});
+
+document.getElementById('globeViz').addEventListener('mouseleave', tipHide);
+
+/* ══════════════════════════════════════════
+   图例点击切换 + 重置按钮
+   ══════════════════════════════════════════ */
+var legendCards = document.querySelectorAll('.legend-card[data-cat]');
+legendCards.forEach(function(card) {
+    card.addEventListener('click', function() {
+        var cat = this.getAttribute('data-cat');
+        if (hiddenCats[cat]) {
+            delete hiddenCats[cat];
+            this.classList.remove('off');
+        } else {
+            hiddenCats[cat] = true;
+            this.classList.add('off');
+        }
+        refreshArcs();
+    });
+});
+
+document.getElementById('clearBtn').addEventListener('click', function() {
+    hiddenCats = {};
+    legendCards.forEach(function(c) { c.classList.remove('off'); });
+    refreshArcs();
+});
+
+/* ══════════════════════════════════════════ */
+function updateChart(year) {
+    var yi = year - 2021;
+    var ranked = tradeDests.map(function(d) {
+        return { cn: d.cn, exp: d.exp[yi], imp: d.imp[yi], total: d.exp[yi] + d.imp[yi] };
+    }).sort(function(a, b) { return b.total - a.total; }).slice(0, 6);
+
+    var maxV = ranked[0].total;
+    var bars = document.getElementById('chartBars');
+    var html = '';
+    ranked.forEach(function(d, i) {
+        var expW = (d.exp / maxV * 100).toFixed(1);
+        var impW = (d.imp / maxV * 100).toFixed(1);
+        var rc = i === 0 ? 'r1' : i === 1 ? 'r2' : i === 2 ? 'r3' : 'rn';
+        html += '<div class="chart-country">' +
+            '<div class="chart-rank ' + rc + '">' + (i + 1) + '</div>' +
+            '<div class="chart-cn">' + d.cn + '</div>' +
+            '<div class="chart-bar-wrap">' +
+            '<div class="chart-bar-bg"><div class="chart-bar-exp" style="width:' + expW + '%"></div></div>' +
+            '<div class="chart-bar-bg"><div class="chart-bar-imp" style="width:' + impW + '%"></div></div>' +
+            '</div>' +
+            '<div class="chart-total">' + d.total.toFixed(1) + '</div>' +
+            '</div>';
+    });
+    bars.innerHTML = html;
+}
+
+/* ══════════════════════════════════════════
+   统计卡片更新
+   ══════════════════════════════════════════ */
+function updateStats(year) {
+    var g = R.gdp[year], t = R.trade[year], inc = R.income[year], f = R.fiscal[year];
+    var tv = (t.totalK / 100000).toFixed(1);
+    document.getElementById('sGdp').innerHTML = g.total + '<span class="stat-unit">亿</span>';
+    document.getElementById('sTrade').innerHTML = tv + '<span class="stat-unit">亿$</span>';
+    document.getElementById('sIncome').innerHTML = inc.all + '<span class="stat-unit">元</span>';
+    document.getElementById('sFiscal').innerHTML = f.revenue.toFixed(1) + '<span class="stat-unit">亿</span>';
+
+    var gdpChg = (g.idx - 100).toFixed(1);
+    document.getElementById('sGdpChg').textContent = (gdpChg >= 0 ? '▲ +' : '▼ ') + gdpChg + '%';
+    document.getElementById('sGdpChg').className = 'stat-change ' + (gdpChg >= 0 ? 'up' : 'down');
+
+    if (year > 2021) {
+        var prevT = R.trade[year - 1].totalK;
+        var tChg = ((t.totalK / prevT - 1) * 100).toFixed(1);
+        document.getElementById('sTradeChg').textContent = (tChg >= 0 ? '▲ +' : '▼ ') + tChg + '%';
+        document.getElementById('sTradeChg').className = 'stat-change ' + (tChg >= 0 ? 'up' : 'down');
+
+        var prevInc = R.income[year - 1].all;
+        var iChg = ((inc.all / prevInc - 1) * 100).toFixed(1);
+        document.getElementById('sIncChg').textContent = (iChg >= 0 ? '▲ +' : '▼ ') + iChg + '%';
+        document.getElementById('sIncChg').className = 'stat-change ' + (iChg >= 0 ? 'up' : 'down');
+
+        var prevF = R.fiscal[year - 1].revenue;
+        var fChg = ((f.revenue / prevF - 1) * 100).toFixed(1);
+        document.getElementById('sFiscChg').textContent = (fChg >= 0 ? '▲ +' : '▼ ') + fChg + '%';
+        document.getElementById('sFiscChg').className = 'stat-change ' + (fChg >= 0 ? 'up' : 'down');
+    } else {
+        document.getElementById('sTradeChg').textContent = '基年';
+        document.getElementById('sIncChg').textContent = '基年';
+        document.getElementById('sFiscChg').textContent = '基年';
+    }
+}
+
+/* ══════════════════════════════════════════
+   贸易结构环形图更新
+   ══════════════════════════════════════════ */
+function updateRings(year) {
+    var t = R.trade[year];
+    var expPct = Math.round(t.exportK / t.totalK * 100);
+    var impPct = 100 - expPct;
+    var circ = 2 * Math.PI * 16; /* r=16 */
+    /* 绿电占总能源估算 */
+    var yi = year - 2021;
+    var totalGreen = 0;
+    greenDests.forEach(function(d) { totalGreen += d.power[yi]; });
+    var greenPct = Math.round(totalGreen / (totalGreen + 800) * 100); /* 800亿kWh为火电基数估算 */
+
+    document.getElementById('ringExp').setAttribute('stroke-dashoffset', (circ * (1 - expPct / 100)).toFixed(1));
+    document.getElementById('pctExp').textContent = expPct + '%';
+    document.getElementById('ringImp').setAttribute('stroke-dashoffset', (circ * (1 - impPct / 100)).toFixed(1));
+    document.getElementById('pctImp').textContent = impPct + '%';
+    document.getElementById('ringGreen').setAttribute('stroke-dashoffset', (circ * (1 - greenPct / 100)).toFixed(1));
+    document.getElementById('pctGreen').textContent = greenPct + '%';
+}
+
+/* ══════════════════════════════════════════
+   右侧贸易详情面板 — 面积堆积图
+   ══════════════════════════════════════════ */
+var detailPanel = document.getElementById('detailPanel');
+document.getElementById('dpClose').addEventListener('click', function() {
+    detailPanel.classList.remove('show');
+});
+
+function showDetailPanel(dd) {
+    /* 标题 */
+    document.getElementById('dpTitle').textContent = '内蒙古 ↔ ' + dd.cn;
+    document.getElementById('dpSub').textContent = '双边贸易 2021—2024 · ' + (dd.com === 'equip' ? '机电设备' : dd.com === 'rare' ? '稀土新材料' : '化工原料');
+
+    /* 统计卡 */
+    var yi = curYear - 2021;
+    var ev = dd.exp[yi], iv = dd.imp[yi], tv = ev + iv;
+    var expPct = (ev / tv * 100).toFixed(1);
+    var impPct = (iv / tv * 100).toFixed(1);
+    var bal = (ev - iv).toFixed(1);
+    var totalTrade = R.trade[curYear].totalK / 100000;
+    var sharePct = (tv / totalTrade * 100).toFixed(1);
+    document.getElementById('dpStats').innerHTML =
+        '<div class="dp-stat"><div class="dp-st-val">' + tv.toFixed(1) + '</div><div class="dp-st-label">总额(亿$)</div></div>' +
+        '<div class="dp-stat"><div class="dp-st-val" style="color:' + (ev >= iv ? '#00ff88' : '#33ffaa') + '">' + (bal > 0 ? '+' : '') + bal + '</div><div class="dp-st-label">贸易差额</div></div>' +
+        '<div class="dp-stat"><div class="dp-st-val">' + sharePct + '%</div><div class="dp-st-label">占全区比</div></div>';
+
+    /* 商品卡 */
+    document.getElementById('dpGoods').innerHTML =
+        '<div class="dp-goods-card"><div class="dp-gc-label"><i style="background:#00ff88"></i>主要出口</div><div class="dp-gc-items">' + dd.goods + '</div></div>' +
+        '<div class="dp-goods-card"><div class="dp-gc-label"><i style="background:#00cc66"></i>主要进口</div><div class="dp-gc-items">' + dd.impG + '</div></div>';
+
+    /* 面积堆积图 */
+    renderAreaChart(dd);
+
+    detailPanel.classList.add('show');
+}
+
+function renderAreaChart(dd) {
+    var W = 308, H = 160, padL = 36, padR = 10, padT = 12, padB = 28;
+    var cW = W - padL - padR, cH = H - padT - padB;
+    var years = [2021, 2022, 2023, 2024];
+    var maxV = 0;
+    for (var i = 0; i < 4; i++) {
+        var t = dd.exp[i] + dd.imp[i];
+        if (t > maxV) maxV = t;
+    }
+    maxV = Math.ceil(maxV / 5) * 5; /* 向上取整到5的倍数 */
+    if (maxV === 0) maxV = 1;
+
+    function x(idx) { return padL + (idx / 3) * cW; }
+    function y(val) { return padT + cH - (val / maxV) * cH; }
+
+    /* 网格线 */
+    var gridCount = 4;
+    var gridSvg = '';
+    for (var g = 0; g <= gridCount; g++) {
+        var gv = (maxV / gridCount) * g;
+        var gy = y(gv);
+        gridSvg += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" stroke="rgba(255,255,255,.06)" stroke-dasharray="2,3"/>';
+        gridSvg += '<text x="' + (padL - 4) + '" y="' + (gy + 3) + '" text-anchor="end" fill="rgba(160,200,220,.4)" font-size="9" font-family="Orbitron,sans-serif">' + gv.toFixed(0) + '</text>';
+    }
+
+    /* 堆积面积路径: 进口在底部，出口在上方 */
+    /* 先画总额面积（进口+出口），再画进口面积 */
+    var totalPath = 'M';
+    var impPath = 'M';
+    var expPath = 'M';
+    /* 上边界 (total = exp + imp) */
+    for (var j = 0; j < 4; j++) {
+        var tv2 = dd.exp[j] + dd.imp[j];
+        totalPath += (j > 0 ? ' L' : '') + x(j).toFixed(1) + ',' + y(tv2).toFixed(1);
+    }
+    /* 下到底 */
+    totalPath += ' L' + x(3).toFixed(1) + ',' + y(0).toFixed(1) + ' L' + x(0).toFixed(1) + ',' + y(0).toFixed(1) + ' Z';
+
+    /* 进口面积(底部) */
+    for (var k = 0; k < 4; k++) {
+        impPath += (k > 0 ? ' L' : '') + x(k).toFixed(1) + ',' + y(dd.imp[k]).toFixed(1);
+    }
+    impPath += ' L' + x(3).toFixed(1) + ',' + y(0).toFixed(1) + ' L' + x(0).toFixed(1) + ',' + y(0).toFixed(1) + ' Z';
+
+    /* 总额折线 */
+    var totalLine = '';
+    for (var m = 0; m < 4; m++) {
+        var tv3 = dd.exp[m] + dd.imp[m];
+        totalLine += (m > 0 ? ' L' : 'M') + x(m).toFixed(1) + ',' + y(tv3).toFixed(1);
+    }
+
+    /* 数据点 + 值标签 */
+    var dots = '';
+    for (var n = 0; n < 4; n++) {
+        var expY = y(dd.exp[n] + dd.imp[n]);
+        var impY = y(dd.imp[n]);
+        /* 出口层标记(总额位置) */
+        dots += '<circle cx="' + x(n).toFixed(1) + '" cy="' + expY.toFixed(1) + '" r="3" fill="#00ff88" stroke="#050510" stroke-width="1.5"/>';
+        /* 进口层标记 */
+        dots += '<circle cx="' + x(n).toFixed(1) + '" cy="' + impY.toFixed(1) + '" r="3" fill="#00cc66" stroke="#050510" stroke-width="1.5"/>';
+        /* 占比标注 */
+        var ePct = (dd.exp[n] / (dd.exp[n] + dd.imp[n]) * 100).toFixed(0);
+        var iPct = (100 - ePct).toFixed(0);
+        if (n === 3 || n === 0) {
+            dots += '<text x="' + (x(n) + 6).toFixed(1) + '" y="' + (expY - 5).toFixed(1) + '" fill="#00ff88" font-size="8" font-family="Orbitron,sans-serif">' + dd.exp[n].toFixed(1) + ' (' + ePct + '%)</text>';
+            dots += '<text x="' + (x(n) + 6).toFixed(1) + '" y="' + (impY - 5).toFixed(1) + '" fill="#00cc66" font-size="8" font-family="Orbitron,sans-serif">' + dd.imp[n].toFixed(1) + ' (' + iPct + '%)</text>';
+        }
+    }
+
+    /* X轴年份 */
+    var xLabels = '';
+    for (var p = 0; p < 4; p++) {
+        xLabels += '<text x="' + x(p).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" fill="rgba(0,255,136,.6)" font-size="10" font-family="Orbitron,sans-serif">' + years[p] + '</text>';
+    }
+
+    /* 当前年份高亮线 */
+    var curIdx = curYear - 2021;
+    var hlLine = '<line x1="' + x(curIdx).toFixed(1) + '" y1="' + padT + '" x2="' + x(curIdx).toFixed(1) + '" y2="' + (H - padB) + '" stroke="rgba(0,255,136,.3)" stroke-dasharray="3,3" stroke-width="1"/>';
+
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+        '<linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="rgba(0,255,136,.45)"/>' +
+        '<stop offset="100%" stop-color="rgba(0,255,136,.05)"/>' +
+        '</linearGradient>' +
+        '<linearGradient id="impGrad" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="rgba(0,200,100,.45)"/>' +
+        '<stop offset="100%" stop-color="rgba(0,200,100,.05)"/>' +
+        '</linearGradient>' +
+        '</defs>' +
+        gridSvg +
+        hlLine +
+        '<path d="' + totalPath + '" fill="url(#expGrad)" opacity=".8"/>' +
+        '<path d="' + impPath + '" fill="url(#impGrad)" opacity=".8"/>' +
+        '<path d="' + totalLine + '" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1" stroke-dasharray="3,2"/>' +
+        dots +
+        xLabels +
+        '</svg>';
+
+    document.getElementById('dpChart').innerHTML = svg;
+}
+
+/* ══════════════════════════════════════════
+   右侧能源面板 — 交互式仪表盘
+   ══════════════════════════════════════════ */
+var energyPanel = document.getElementById('energyPanel');
+document.getElementById('epClose').addEventListener('click', function() {
+    energyPanel.classList.remove('show');
+});
+
+var currentEnergyDest = null;
+var currentEnergyType = null;
+
+function showEnergyPanel(dest, type) {
+    currentEnergyDest = dest;
+    currentEnergyType = type;
+    /* 关闭贸易面板(互斥) */
+    detailPanel.classList.remove('show');
+
+    var yi = curYear - 2021;
+    var badge = document.getElementById('epBadge');
+
+    if (type === 'coal') {
+        document.getElementById('epTitle').textContent = dest.name + '（' + dest.prov + '）';
+        badge.textContent = '煤炭'; badge.className = 'ep-type-badge coal';
+        document.getElementById('epSub').textContent = '内蒙古 → ' + dest.name + ' · ' + curYear + '年煤炭输送';
+        renderCoalGauges(dest, yi);
+        renderCoalBars(dest);
+        renderCoalSpark(dest);
+        renderCoalInfo(dest, yi);
+    } else {
+        document.getElementById('epTitle').textContent = dest.name + '（' + dest.prov + '）';
+        badge.textContent = '绿电'; badge.className = 'ep-type-badge green';
+        document.getElementById('epSub').textContent = '内蒙古 → ' + dest.name + ' · ' + curYear + '年绿电算力';
+        renderGreenGauges(dest, yi);
+        renderGreenBars(dest);
+        renderGreenSpark(dest);
+        renderGreenInfo(dest, yi);
+    }
+
+    energyPanel.classList.add('show');
+}
+
+/* ── 圆弧仪表 SVG 生成器 ── */
+function arcGaugeSVG(pct, color, glowColor, val, unit, label) {
+    var r = 34, cx = 44, cy = 44, sw = 6;
+    var circ = 2 * Math.PI * r;
+    var dashOff = circ * (1 - Math.min(pct, 100) / 100);
+    return '<svg viewBox="0 0 88 88" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><filter id="glow_' + label + '" x="-30%" y="-30%" width="160%" height="160%">' +
+        '<feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>' +
+        '</filter></defs>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="rgba(255,255,255,.04)" stroke-width="' + sw + '"/>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + sw + '"' +
+        ' stroke-linecap="round" stroke-dasharray="' + circ.toFixed(1) + '" stroke-dashoffset="' + dashOff.toFixed(1) + '"' +
+        ' transform="rotate(-90 ' + cx + ' ' + cy + ')" filter="url(#glow_' + label + ')"' +
+        ' style="transition:stroke-dashoffset .8s ease"/>' +
+        '</svg>';
+}
+
+/* ── 煤炭仪表盘 ── */
+function renderCoalGauges(d, yi) {
+    var vol = d.coal[yi];
+    var share = d.share[yi];
+    var price = d.price[yi];
+    var maxVol = 5000; /* 万吨 */
+    var volPct = vol / maxVol * 100;
+    var maxPrice = 900;
+    var pricePct = price / maxPrice * 100;
+
+    var html = '<div class="ep-gauge">' + arcGaugeSVG(volPct, '#00ff88', 'rgba(0,255,136,.3)', vol, '万吨', 'vol') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00ff88">' + vol + '</div><div class="ep-gauge-unit">万吨</div><div class="ep-gauge-label">输煤量</div></div></div>' +
+        '<div class="ep-gauge">' + arcGaugeSVG(share, '#00ff88', 'rgba(0,255,136,.3)', share, '%', 'share') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00ff88">' + share + '%</div><div class="ep-gauge-unit"></div><div class="ep-gauge-label">占总输出</div></div></div>' +
+        '<div class="ep-gauge">' + arcGaugeSVG(pricePct, '#00cc66', 'rgba(0,200,100,.3)', price, '元/吨', 'price') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00cc66">' + price + '</div><div class="ep-gauge-unit">元/吨</div><div class="ep-gauge-label">坑口均价</div></div></div>';
+    document.getElementById('epGauges').innerHTML = html;
+}
+
+/* ── 绿电仪表盘 ── */
+function renderGreenGauges(d, yi) {
+    var pwr = d.power[yi];
+    var cap = d.cap[yi];
+    var gPct = d.greenPct[yi];
+    var maxPwr = 300;
+    var pwrPct = pwr / maxPwr * 100;
+    var maxCap = 1600;
+    var capPct = cap / maxCap * 100;
+
+    var html = '<div class="ep-gauge">' + arcGaugeSVG(pwrPct, '#00ff88', 'rgba(0,255,136,.3)', pwr, '亿kWh', 'pwr') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00ff88">' + pwr + '</div><div class="ep-gauge-unit">亿kWh</div><div class="ep-gauge-label">送电量</div></div></div>' +
+        '<div class="ep-gauge">' + arcGaugeSVG(capPct, '#00cc66', 'rgba(0,200,100,.3)', cap, '万kW', 'cap') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00cc66">' + cap + '</div><div class="ep-gauge-unit">万kW</div><div class="ep-gauge-label">装机容量</div></div></div>' +
+        '<div class="ep-gauge">' + arcGaugeSVG(gPct, '#00ff88', 'rgba(0,255,136,.3)', gPct, '%', 'gpct') +
+        '<div class="ep-gauge-center"><div class="ep-gauge-val" style="color:#00ff88">' + gPct + '%</div><div class="ep-gauge-unit"></div><div class="ep-gauge-label">绿电占比</div></div></div>';
+    document.getElementById('epGauges').innerHTML = html;
+}
+
+/* ── 年份柱状图 ── */
+function renderCoalBars(d) {
+    var maxV = 0;
+    for (var i = 0; i < 4; i++) { if (d.coal[i] > maxV) maxV = d.coal[i]; }
+    var html = '';
+    for (var j = 0; j < 4; j++) {
+        var yr = 2021 + j;
+        var w = (d.coal[j] / maxV * 100).toFixed(1);
+        var chg = j > 0 ? ((d.coal[j] / d.coal[j-1] - 1) * 100).toFixed(1) : '--';
+        var chgCls = j > 0 ? (chg >= 0 ? 'up' : 'down') : '';
+        var chgTxt = j > 0 ? (chg >= 0 ? '+' : '') + chg + '%' : '基年';
+        var isAct = yr === curYear ? ' active' : '';
+        html += '<div class="ep-bar-row"><span class="ep-bar-year' + isAct + '">' + yr + '</span>' +
+            '<div class="ep-bar-track"><div class="ep-bar-fill" style="width:' + w + '%;background:linear-gradient(90deg,#00ff88,rgba(0,255,136,.3))"></div></div>' +
+            '<span class="ep-bar-val">' + d.coal[j] + '</span>' +
+            '<span class="ep-bar-chg ' + chgCls + '">' + chgTxt + '</span></div>';
+    }
+    document.getElementById('epBars').innerHTML = html;
+}
+
+function renderGreenBars(d) {
+    var maxV = 0;
+    for (var i = 0; i < 4; i++) { if (d.power[i] > maxV) maxV = d.power[i]; }
+    var html = '';
+    for (var j = 0; j < 4; j++) {
+        var yr = 2021 + j;
+        var w = (d.power[j] / maxV * 100).toFixed(1);
+        var chg = j > 0 ? ((d.power[j] / d.power[j-1] - 1) * 100).toFixed(1) : '--';
+        var chgCls = j > 0 ? (chg >= 0 ? 'up' : 'down') : '';
+        var chgTxt = j > 0 ? (chg >= 0 ? '+' : '') + chg + '%' : '基年';
+        var isAct = yr === curYear ? ' active' : '';
+        html += '<div class="ep-bar-row"><span class="ep-bar-year' + isAct + '">' + yr + '</span>' +
+            '<div class="ep-bar-track"><div class="ep-bar-fill" style="width:' + w + '%;background:linear-gradient(90deg,#00ff88,rgba(0,255,136,.2))"></div></div>' +
+            '<span class="ep-bar-val">' + d.power[j] + '</span>' +
+            '<span class="ep-bar-chg ' + chgCls + '">' + chgTxt + '</span></div>';
+    }
+    document.getElementById('epBars').innerHTML = html;
+}
+
+/* ── 趋势迷你折线(Sparkline) ── */
+function renderCoalSpark(d) {
+    var W = 308, H = 48, pad = 8;
+    var vals = d.coal;
+    var maxV = 0; for (var i = 0; i < 4; i++) { if (vals[i] > maxV) maxV = vals[i]; }
+    var pts = [];
+    for (var j = 0; j < 4; j++) {
+        pts.push(( pad + (j / 3) * (W - 2 * pad) ).toFixed(1) + ',' + ( H - pad - ((vals[j] / maxV) * (H - 2 * pad)) ).toFixed(1));
+    }
+    var areaPath = 'M' + pts.join(' L') + ' L' + (W-pad).toFixed(1) + ',' + (H-pad) + ' L' + pad + ',' + (H-pad) + ' Z';
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="sparkCoalG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(0,255,136,.25)"/><stop offset="100%" stop-color="rgba(0,255,136,.02)"/></linearGradient></defs>' +
+        '<path d="'+areaPath+'" fill="url(#sparkCoalG)"/>' +
+        '<polyline points="'+pts.join(' ')+'" fill="none" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+    for (var k = 0; k < 4; k++) {
+        svg += '<circle cx="'+pts[k].split(',')[0]+'" cy="'+pts[k].split(',')[1]+'" r="3" fill="'+(2021+k===curYear?'#fff':'#00ff88')+'" stroke="#050510" stroke-width="1.5"/>';
+    }
+    svg += '</svg>';
+    document.getElementById('epSpark').innerHTML = svg;
+}
+
+function renderGreenSpark(d) {
+    var W = 308, H = 48, pad = 8;
+    var vals = d.power;
+    var maxV = 0; for (var i = 0; i < 4; i++) { if (vals[i] > maxV) maxV = vals[i]; }
+    var pts = [];
+    for (var j = 0; j < 4; j++) {
+        pts.push(( pad + (j / 3) * (W - 2 * pad) ).toFixed(1) + ',' + ( H - pad - ((vals[j] / maxV) * (H - 2 * pad)) ).toFixed(1));
+    }
+    var areaPath = 'M' + pts.join(' L') + ' L' + (W-pad).toFixed(1) + ',' + (H-pad) + ' L' + pad + ',' + (H-pad) + ' Z';
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="sparkGreenG" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(80,232,208,.25)"/><stop offset="100%" stop-color="rgba(80,232,208,.02)"/></linearGradient></defs>' +
+        '<path d="'+areaPath+'" fill="url(#sparkGreenG)"/>' +
+        '<polyline points="'+pts.join(' ')+'" fill="none" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>';
+    for (var k = 0; k < 4; k++) {
+        svg += '<circle cx="'+pts[k].split(',')[0]+'" cy="'+pts[k].split(',')[1]+'" r="3" fill="'+(2021+k===curYear?'#fff':'#00ff88')+'" stroke="#050510" stroke-width="1.5"/>';
+    }
+    svg += '</svg>';
+    document.getElementById('epSpark').innerHTML = svg;
+}
+
+/* ── 信息卡 ── */
+function renderCoalInfo(d, yi) {
+    var totalShare = (d.coal[yi] / coalTotal[curYear] * 100).toFixed(1);
+    document.getElementById('epInfo').innerHTML =
+        '<div class="ep-info-card"><div class="ep-ic-label">🚂 运输通道</div><div class="ep-ic-val">' + d.route + '</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">⚡ 主要用途</div><div class="ep-ic-val">' + d.use + '</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">📊 占全区输出</div><div class="ep-ic-val" style="font-family:Orbitron,sans-serif;color:#00ff88">' + totalShare + '%</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">📍 受端区域</div><div class="ep-ic-val">' + d.prov + '</div></div>';
+}
+
+function renderGreenInfo(d, yi) {
+    var totalShare = (d.power[yi] / greenTotal[curYear] * 100).toFixed(1);
+    document.getElementById('epInfo').innerHTML =
+        '<div class="ep-info-card"><div class="ep-ic-label">⚡ 输电通道</div><div class="ep-ic-val">' + d.route + '</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">🖥️ 受端用途</div><div class="ep-ic-val">' + d.use + '</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">📊 占总送电</div><div class="ep-ic-val" style="font-family:Orbitron,sans-serif;color:#00ff88">' + totalShare + '%</div></div>' +
+        '<div class="ep-info-card"><div class="ep-ic-label">📍 受端区域</div><div class="ep-ic-val">' + d.prov + '</div></div>';
+}
+
+/* ── 面板间互斥 + 年份联动 ── */
+var currentDetailDest = null;
+var _origShowDetail = showDetailPanel;
+showDetailPanel = function(dd) {
+    currentDetailDest = dd;
+    energyPanel.classList.remove('show'); /* 关闭能源面板 */
+    _origShowDetail(dd);
+};
+
+/* 扩展 applyYear：年份切换时刷新已打开的面板 */
+var _baseApplyYear = applyYear;
+applyYear = function(year) {
+    _baseApplyYear(year);
+    if (currentDetailDest && detailPanel.classList.contains('show')) {
+        _origShowDetail(currentDetailDest);
+    }
+    if (currentEnergyDest && energyPanel.classList.contains('show')) {
+        showEnergyPanel(currentEnergyDest, currentEnergyType);
+    }
+};
+/* 重新绑定时间轴，让它调用新的 applyYear */
+document.getElementById('yearSlider').addEventListener('input', function (e) {
+    applyYear(Number(e.target.value));
+});
+
+/* 初始渲染 */
+updateChart(2021);
+updateStats(2021);
+updateRings(2021);

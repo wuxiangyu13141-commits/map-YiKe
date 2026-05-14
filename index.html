@@ -7,8 +7,56 @@
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   </head>
-  <body>
+  <body class="intro-active">
     <div class="bg-overlay"></div>
+    <section class="intro-experience is-cinematic" id="introExperience" aria-label="Y4569 开场主页">
+      <canvas id="introGlobeCanvas" class="intro-globe-canvas"></canvas>
+      <div class="intro-stars" aria-hidden="true"></div>
+      <div class="intro-grid" aria-hidden="true"></div>
+      <div class="intro-noise" aria-hidden="true"></div>
+      <div class="intro-vignette" aria-hidden="true"></div>
+      <div class="intro-wordmark intro-wordmark--left" aria-hidden="true">共同体</div>
+      <div class="intro-wordmark intro-wordmark--mid" aria-hidden="true">谱系</div>
+      <div class="intro-wordmark intro-wordmark--right" aria-hidden="true">迁徙</div>
+
+      <div class="intro-shell">
+        <div class="intro-copy">
+          <p class="intro-kicker">Y4569 Migration Observatory</p>
+          <h1 class="intro-title">父系 C-Y4569<br />部族迁徙全景</h1>
+          <p class="intro-lead" id="introLeadText">镜头自远空推进，落在五大部族的现代终局版图。</p>
+
+          <div class="intro-manifesto">
+            <p>DNA 父系证据与人类学、民族学视角并置，重看草原部族扩散与中华民族共同体的形成逻辑。</p>
+            <p>导线解释五部族分化方向与现代终局，点击“开始详细解析”进入完整交互分析。</p>
+          </div>
+
+          <button id="introLaunchBtn" class="intro-launch-btn" type="button">
+            <span>开始详细解析</span>
+            <span class="intro-launch-arrow">→</span>
+          </button>
+
+          <div class="intro-flow-figure" id="introFlowFigure">
+            <div class="intro-flow-head">
+              <span class="intro-flow-tag">Migration Diagram</span>
+              <span class="intro-flow-title">五部族扩散图</span>
+            </div>
+            <svg id="introFlowSvg" viewBox="0 0 760 290" preserveAspectRatio="none" aria-label="五部族扩散图"></svg>
+            <div class="intro-flow-caption">从共同祖源出发，分化为五条现代终局支脉。</div>
+          </div>
+        </div>
+
+        <div class="intro-globe-stage" aria-label="终局地球与五部族导线说明">
+          <div class="intro-tribe-list" id="introTribeList"></div>
+        </div>
+      </div>
+
+      <div class="intro-film-caption" id="introFilmCaption">FROM THE FAR HORIZON OF THE STEPPE</div>
+      <div class="intro-corner intro-corner--tl" aria-hidden="true"></div>
+      <div class="intro-corner intro-corner--tr" aria-hidden="true"></div>
+      <div class="intro-corner intro-corner--bl" aria-hidden="true"></div>
+      <div class="intro-corner intro-corner--br" aria-hidden="true"></div>
+    </section>
+
     <button id="fullscreenBtn" type="button" title="全屏 (F11)">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
         <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
@@ -31,7 +79,7 @@
       <main class="layout">
         <section class="map-panel">
           <div class="map-frame">
-            <svg id="mapSvg" class="map-svg" viewBox="570 40 370 220" preserveAspectRatio="xMidYMid meet">
+            <svg id="mapSvg" class="map-svg" viewBox="570 40 370 220" preserveAspectRatio="xMidYMid meet" overflow="visible">
               <defs>
                 <filter id="glassBlur" x="-20%" y="-20%" width="140%" height="140%">
                   <feGaussianBlur stdDeviation="2.4" result="soft"></feGaussianBlur>
@@ -104,18 +152,20 @@
                   <path d="M8 5v14l11-7z"></path>
                 </svg>
               </button>
-              <input id="timelineSlider" type="range" min="0" max="50" step="1" value="0" />
+              <div class="timeline-track-shell">
+                <div class="timeline-marker timeline-marker--current" id="currentTimelineMarker">
+                  <span class="timeline-marker-text" id="currentTimelineMarkerText">播放到 古代扩散阶段 · 距今 5000 年</span>
+                  <span class="timeline-marker-caret"></span>
+                  <span class="timeline-marker-dot"></span>
+                </div>
+                <input id="timelineSlider" type="range" min="0" max="50" step="1" value="0" />
+                <div class="timeline-origin-marker" id="originMarker">
+                  <span class="timeline-origin-dot"></span>
+                  <span class="timeline-origin-text" id="originMarkerText">Y4569 出现 · 距今 1260 年</span>
+                </div>
+              </div>
             </div>
-            <div class="timeline-marker" id="originMarker">
-              <span class="timeline-marker-dot"></span>
-              <span class="timeline-marker-text" id="originMarkerText">宗族出现起点</span>
-            </div>
-            <div class="axis-labels">
-              <span class="axis-label axis-label-start" style="--pos: 0%;">距今 5000 年</span>
-              <span class="axis-label" style="--pos: 50%;">距今 2500 年</span>
-              <span class="axis-label" style="--pos: 80%;">距今 1000 年</span>
-              <span class="axis-label axis-label-end" style="--pos: 100%;">现代</span>
-            </div>
+            <div class="axis-labels"></div>
           </div>
         </section>
 
@@ -129,7 +179,7 @@
           <!-- 谱系树卡片 -->
           <section class="panel-card tree-card">
             <div class="tree-card-header">
-              <h2>世系谱系树</h2>
+              <h2>谱系树</h2>
               <div class="tree-btn-group">
                 <button id="treeZoomIn" class="tree-ctrl-btn" title="放大">+</button>
                 <button id="treeZoomOut" class="tree-ctrl-btn" title="缩小">−</button>

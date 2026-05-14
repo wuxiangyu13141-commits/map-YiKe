@@ -28,6 +28,8 @@ const currentModeLabel = document.getElementById("currentModeLabel");
 const tickLabel = document.getElementById("tickLabel");
 const branchLegend = document.getElementById("branchLegend");
 const sampleList = document.getElementById("sampleList");
+const currentTimelineMarker = document.getElementById("currentTimelineMarker");
+const currentTimelineMarkerText = document.getElementById("currentTimelineMarkerText");
 const originMarker = document.getElementById("originMarker");
 const originMarkerText = document.getElementById("originMarkerText");
 
@@ -63,7 +65,22 @@ const regionMap = new Map(data.regions.map((region) => [region.id, region]));
 const branchMap = new Map(data.branches.map((branch) => [branch.id, branch]));
 const sampleMap = new Map(data.samples.map((sample) => [sample.id, sample]));
 const compressedCommonPrefix = getCompressedCommonPrefix();
-const PLAYBACK_INTERVAL_MS = 550; // 约20秒播放完全程（~37步 × 550ms）
+const PLAYBACK_TOTAL_MS = 20000;
+const TREE_ANNOTATION_BRANCH_IDS = ["MF247416", "BY182928", "Y20085", "Y20087", "ZQ32"];
+const TREE_SUPPRESSED_BRANCH_LABELS = new Set();
+const TREE_ALWAYS_LABEL_BRANCH_IDS = new Set(["Y4541", "Y12782", "MF317986", "MV154461", "Y20798"]);
+const TREE_FORCED_LABEL_LAYOUT = new Map([
+  ["Y4541", { x: -12, y: -14 }],
+  ["Y12782", { x: -16, y: 18 }],
+  ["MF317986", { x: -14, y: 66 }],
+  ["MV154461", { x: -14, y: 82 }],
+  ["Y20798", { x: -14, y: 44 }],
+]);
+const treeBranchAnnotations = new Map(
+  TREE_ANNOTATION_BRANCH_IDS
+    .map((branchId) => [branchId, getTreeBranchAnnotation(branchId)])
+    .filter(([, label]) => !!label)
+);
 
 const originBranch = branchMap.get(data.meta.branch);
 
@@ -88,41 +105,61 @@ for (let bp = originAge - DENSE_STEP; bp >= 0; bp -= DENSE_STEP) {
 if (!timelineSteps.includes(0)) timelineSteps.push(0);
 
 const timeline = [...new Set(timelineSteps)].sort((a, b) => b - a);
-if (originMarker && originBranch) {
-  // 非线性时间轴下，根据origin在steps中的位置计算标记位置
-  const originIndex = timeline.indexOf(originAge);
-  const originPosition = originIndex >= 0 
-    ? (originIndex / (timeline.length - 1)) * 100 
-    : ((data.meta.timelineStartBP - originBranch.age) / data.meta.timelineStartBP) * 100;
-  originMarker.style.setProperty("--pos", `${originPosition}%`);
-  originMarker.setAttribute("title", `${data.meta.branch} 从 ${formatTime(originBranch.age)} 开始出现`);
+
+function getTimelinePositionPercent(index) {
+  if (timeline.length <= 1) {
+    return 0;
+  }
+  return (index / (timeline.length - 1)) * 100;
 }
 
-if (originMarkerText && originBranch) {
-  originMarkerText.textContent = `宗族出现起点（${formatTime(originBranch.age)}）`;
-}
-
-// 简化时间轴标签：只显示起点、宗族出现点、终点
-(function updateAxisLabels() {
+function updateAxisLabels() {
   const axisContainer = document.querySelector('.axis-labels');
   if (!axisContainer) return;
-  const N = timeline.length;
-  const originIdx = timeline.indexOf(originAge);
-  const labels = [
-    { bp: data.meta.timelineStartBP, text: `距今 ${data.meta.timelineStartBP} 年`, idx: 0, cls: 'axis-label axis-label-start' },
-    { bp: originAge, text: `宗族出现\n${originAge}年前`, idx: originIdx, cls: 'axis-label axis-label-origin' },
-    { bp: 0, text: '现代', idx: N - 1, cls: 'axis-label axis-label-end' },
-  ];
+
+  const lastIndex = timeline.length - 1;
+  const indices = [...new Set([0, Math.round(lastIndex * 0.5), lastIndex])];
+
   axisContainer.innerHTML = '';
-  labels.forEach(({ text, idx, cls }) => {
-    const pos = (idx / (N - 1)) * 100;
+  indices.forEach((idx, order) => {
     const span = document.createElement('span');
-    span.className = cls;
-    span.style.setProperty('--pos', `${pos.toFixed(1)}%`);
-    span.textContent = text.replace('\\n', '\n');
+    span.className = 'axis-label';
+    if (order === 0) span.classList.add('axis-label-start');
+    if (order === indices.length - 1) span.classList.add('axis-label-end');
+    span.style.setProperty('--pos', `${getTimelinePositionPercent(idx).toFixed(1)}%`);
+    span.textContent = idx === lastIndex ? '现代' : formatTime(timeline[idx]);
     axisContainer.appendChild(span);
   });
-})();
+}
+
+function updateOriginTimelineMarker() {
+  if (!originBranch || !originMarker) return;
+
+  const originIndex = timeline.indexOf(originAge);
+  const originPosition = originIndex >= 0
+    ? getTimelinePositionPercent(originIndex)
+    : ((data.meta.timelineStartBP - originBranch.age) / data.meta.timelineStartBP) * 100;
+
+  originMarker.style.setProperty('--pos', `${originPosition.toFixed(1)}%`);
+  if (originMarkerText) {
+    originMarkerText.textContent = `${data.meta.branch} 出现 · ${formatTime(originBranch.age)}`;
+  }
+}
+
+function updateCurrentTimelineMarker(bp) {
+  if (!currentTimelineMarker) return;
+
+  const pos = getTimelinePositionPercent(currentIndex);
+  currentTimelineMarker.style.setProperty('--pos', `${pos.toFixed(1)}%`);
+  currentTimelineMarker.dataset.edge = pos < 12 ? 'start' : pos > 88 ? 'end' : 'center';
+  if (currentTimelineMarkerText) {
+    const modeText = bp === 0 ? '现代样本点状态' : '古代扩散阶段';
+    currentTimelineMarkerText.textContent = `播放到 ${modeText} · ${formatTime(bp)}`;
+  }
+}
+
+updateAxisLabels();
+updateOriginTimelineMarker();
 
 
 let currentIndex = 0;
@@ -190,12 +227,7 @@ function stopPlayback() {
 
 // 动态获取当前帧的播放间隔：宗族出现前快速，出现后慢速（比基础速度多 15 秒总时长）
 function getTickInterval() {
-  if (currentIndex < originStartIndex) {
-    return 220; // 宗族出现前：快速跳过稀疏段
-  }
-  // 宗族出现后：在基础 550ms 上额外分配 15 秒
-  const denseSteps = Math.max(timeline.length - originStartIndex, 1);
-  return PLAYBACK_INTERVAL_MS + Math.round(15000 / denseSteps);
+  return Math.max(160, Math.round(PLAYBACK_TOTAL_MS / Math.max(timeline.length - 1, 1)));
 }
 
 function togglePlayback() {
@@ -474,6 +506,27 @@ function ensureBranchGradient(branch, r, g, b) {
 
 function formatTime(bp) {
   return bp === 0 ? "现代" : `距今 ${bp} 年`;
+}
+
+function getTreeBranchAnnotation(branchId) {
+  const directSamples = data.samples.filter((sample) => sample.branchSegments?.at(-1) === branchId);
+  const familyLabels = [];
+  const tribeLabels = [];
+
+  directSamples.forEach((sample) => {
+    if (sample.family && !familyLabels.includes(sample.family)) {
+      familyLabels.push(sample.family);
+    }
+    if (sample.tribe && !tribeLabels.includes(sample.tribe)) {
+      tribeLabels.push(sample.tribe);
+    }
+  });
+
+  const annotation = familyLabels.length ? familyLabels.join('/') : tribeLabels.join('/');
+  if (annotation === '克烈部/克烈部阿巴克部') {
+    return '克烈-阿巴克部';
+  }
+  return annotation;
 }
 
 function hexToHSL(hex) {
@@ -821,6 +874,7 @@ function render() {
   currentTimeLabel.textContent = formatTime(bp);
   currentModeLabel.textContent = bp === 0 ? "现代样本点状态" : "古代扩散阶段";
   tickLabel.textContent = `第 ${currentIndex + 1} 格 / ${timeline.length} 格`;
+  updateCurrentTimelineMarker(bp);
 
   pointLayer.textContent = "";
 
@@ -990,7 +1044,12 @@ function render() {
   const FONT_SIZE = 7.5;
   const YEAR_FONT_SIZE = 6;
   const LINE_H = FONT_SIZE + 4;
-  labelItems.sort((a, b) => a.cy - b.cy);
+  // 先按 branchAge 降序排个稳定键，再按 cy 升序放置——保证同区域分支（如 Y20085/Y20087）顺序始终一致
+  labelItems.sort((a, b) => {
+    const diff = a.cy - b.cy;
+    if (Math.abs(diff) < 3) return b.branchAge - a.branchAge; // cy 接近时，更古老的分支排前面（保持在上方）
+    return diff;
+  });
   // 预先将所有区域边界框加入占用区域，标注不会覆盖任何扩散图形
   const placedRects = labelItems.map(item => ({
     x: item.minX - 6, y: item.minY - 6,
@@ -1011,20 +1070,19 @@ function render() {
 
     // 根据区域最终位置决定标注方向（稳定，不随动画变化）
     // 右半区域(fcx > 620) → 斜向左上；其他 → 斜向右上
+    // ly 足够高于区域上边界（小于 fminY - PAD - boxH - 4），避免防碰撞将其向下挤进区域中间
     let lx, ly, arrowAnchorX, arrowAnchorY;
     if (fcx > 620) {
       // 斜向左上方放置
       lx = fminX - mainTextW - PAD;
-      ly = fminY - PAD - boxH * 0.6;
-      arrowAnchorX = cx; // 箭头指向当前动画质心
-      arrowAnchorY = cy;
+      ly = fminY - PAD - boxH - 4;
     } else {
       // 斜向右上方放置
       lx = fmaxX + PAD * 0.5;
-      ly = fminY - PAD - boxH * 0.4;
-      arrowAnchorX = cx;
-      arrowAnchorY = cy;
+      ly = fminY - PAD - boxH - 4;
     }
+    arrowAnchorX = cx;
+    arrowAnchorY = cy;
 
     // 边界限制，防止超出地图
     lx = Math.max(4, Math.min(lx, 994 - mainTextW));
@@ -1552,171 +1610,692 @@ function calcMapHighlightBranches(treeNodeId) {
   return result;
 }
 
-function initGenealogyTree() {
-  const container = document.getElementById("treeSvg");
-  if (!container || treeState.initialized) return;
-  treeState.initialized = true;
+// ════════════════════════════════════════════════════════════════════════════
+// SVG 时间轴谱系树 — 桑基图风格，节点按时间横轴对齐
+// ════════════════════════════════════════════════════════════════════════════
+const SVG_RULER_H = 58;
+const SVG_TREE_PAD_T = 22;
+const SVG_TREE_PAD_B = 22;
+const SVG_TREE_PAD_L = 56;
+const SVG_TREE_PAD_R = 48;
+const SK_W_BRANCH = 9;
+const SK_W_SAMPLE = 4;
+const TREE_PRE_ORIGIN_SHARE = 0.18;
 
-  if (typeof echarts === 'undefined') {
-    console.warn("ECharts not loaded — genealogy tree disabled");
+let _svgInited = false;
+let _svgEl = null;
+let _svgRuler = null;
+let _svgG = null;
+let _svgDefs = null;
+let _svgPanX = 0, _svgPanY = 0, _svgScale = 1;
+let _svgGradSeq = 0;
+let _svgViewportW = 0, _svgViewportH = 0;
+let _svgContentW = 0, _svgContentH = 0;
+
+function ageToTimelineFrac(age) {
+  if (age >= timeline[0]) return 0;
+  if (age <= 0) return 1;
+  if (!originBranch) {
+    return 1 - (age / Math.max(timeline[0], 1));
+  }
+
+  if (age >= originAge) {
+    const preOriginSpan = Math.max(timeline[0] - originAge, 1);
+    return ((timeline[0] - age) / preOriginSpan) * TREE_PRE_ORIGIN_SHARE;
+  }
+
+  return TREE_PRE_ORIGIN_SHARE + ((originAge - age) / Math.max(originAge, 1)) * (1 - TREE_PRE_ORIGIN_SHARE);
+}
+
+function computeSvgYLayout(vis, height) {
+  const children = new Map();
+  const hasParent = new Set();
+  const branchIds = data.branches.map(branch => branch.id);
+  branchIds.forEach(id => {
+    const pid = _treeParentMap[id];
+    if (pid && branchMap.has(pid)) {
+      hasParent.add(id);
+      if (!children.has(pid)) children.set(pid, []);
+      children.get(pid).push(id);
+    }
+  });
+  const roots = branchIds.filter(id => !hasParent.has(id));
+  children.forEach(kids => {
+    kids.sort((a, b) => (_treeNodeMap[b]?.age || 0) - (_treeNodeMap[a]?.age || 0));
+  });
+  const leafOf = new Map();
+  function countLeaves(id) {
+    const kids = children.get(id) || [];
+    if (!kids.length) { leafOf.set(id, 1); return 1; }
+    const s = kids.reduce((acc, k) => acc + countLeaves(k), 0);
+    leafOf.set(id, s); return s;
+  }
+  roots.forEach(countLeaves);
+  const totalLeaves = roots.reduce((s, r) => s + (leafOf.get(r) || 1), 0);
+  const slot = (height - 16) / Math.max(totalLeaves, 1);
+  const yMap = new Map();
+  let cursor = 0;
+  function assignY(id) {
+    const kids = children.get(id);
+    if (!kids || !kids.length) { yMap.set(id, 8 + (cursor + 0.5) * slot); cursor++; return; }
+    kids.forEach(assignY);
+    const ys = kids.map(k => yMap.get(k) || 0);
+    yMap.set(id, (ys[0] + ys[ys.length - 1]) / 2);
+  }
+  roots.forEach(assignY);
+
+  const samplesByParent = new Map();
+  vis.forEach(id => {
+    if (_treeNodeMap[id]?.type !== 'sample') return;
+    const pid = _treeParentMap[id];
+    if (!samplesByParent.has(pid)) samplesByParent.set(pid, []);
+    samplesByParent.get(pid).push(id);
+  });
+  samplesByParent.forEach((samples, pid) => {
+    const py = yMap.get(pid) ?? height / 2;
+    const spread = Math.min(Math.max(slot * 0.72, 12), 36);
+    samples.forEach((sid, idx) => {
+      const offset = samples.length > 1 ? (idx / (samples.length - 1) - 0.5) * spread : 0;
+      yMap.set(sid, py + offset);
+    });
+  });
+  return yMap;
+}
+
+function sankeyPathHorizontal(px, py, cx, cy, wStart, wEnd) {
+  const hh1 = wStart / 2;
+  const hh2 = wEnd / 2;
+  const dx = cx - px;
+  const c1x = px + dx * 0.45;
+  const c2x = cx - dx * 0.45;
+  return `M${px.toFixed(1)},${(py - hh1).toFixed(1)} ` +
+    `C${c1x.toFixed(1)},${(py - hh1).toFixed(1)} ${c2x.toFixed(1)},${(cy - hh2).toFixed(1)} ${cx.toFixed(1)},${(cy - hh2).toFixed(1)} ` +
+    `L${cx.toFixed(1)},${(cy + hh2).toFixed(1)} ` +
+    `C${c2x.toFixed(1)},${(cy + hh2).toFixed(1)} ${c1x.toFixed(1)},${(py + hh1).toFixed(1)} ${px.toFixed(1)},${(py + hh1).toFixed(1)} Z`;
+}
+
+function sankeyCenterlineHorizontal(px, py, cx, cy) {
+  const dx = cx - px;
+  const c1x = px + dx * 0.45;
+  const c2x = cx - dx * 0.45;
+  return `M${px.toFixed(1)},${py.toFixed(1)} ` +
+    `C${c1x.toFixed(1)},${py.toFixed(1)} ${c2x.toFixed(1)},${cy.toFixed(1)} ${cx.toFixed(1)},${cy.toFixed(1)}`;
+}
+
+function ensureGradient(defs, id, c1, c2, x1, x2) {
+  let el = defs.querySelector('#' + id);
+  if (!el) {
+    el = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+    el.setAttribute('id', id);
+    el.setAttribute('gradientUnits', 'userSpaceOnUse');
+    defs.appendChild(el);
+  }
+  el.setAttribute('x1', String(x1));
+  el.setAttribute('x2', String(x2));
+  el.setAttribute('y1', '0');
+  el.setAttribute('y2', '0');
+  el.innerHTML = `<stop offset="0%" stop-color="${c1}" stop-opacity="0.88"/>` +
+                 `<stop offset="100%" stop-color="${c2}" stop-opacity="0.88"/>`;
+  return `url(#${id})`;
+}
+
+function getTreeAxisTicks() {
+  const ticks = [timeline[0]];
+  if (originBranch) {
+    ticks.push(originBranch.age);
+  }
+
+  const postOriginSpan = Math.max(timeline.length - 1 - originStartIndex, 0);
+  [0.35, 0.7, 1].forEach((ratio) => {
+    const idx = originStartIndex + Math.round(postOriginSpan * ratio);
+    const age = timeline[Math.min(timeline.length - 1, idx)];
+    if (age != null) {
+      ticks.push(age);
+    }
+  });
+
+  return [...new Set(ticks)];
+}
+
+function getTreeAxisX(age) {
+  return SVG_TREE_PAD_L + ageToTimelineFrac(age) * _svgContentW;
+}
+
+function getTreeNodeDepth(id) {
+  let depth = 0;
+  let currentId = id;
+  while (_treeParentMap[currentId]) {
+    depth += 1;
+    currentId = _treeParentMap[currentId];
+  }
+  return depth;
+}
+
+function getTreeFlowWidth(id) {
+  const node = _treeNodeMap[id];
+  if (!node) {
+    return SK_W_SAMPLE;
+  }
+  if (node.type === 'sample') {
+    return 3.6;
+  }
+  const depth = getTreeNodeDepth(id);
+  if (depth === 0) {
+    return 24;
+  }
+  if (depth === 1) {
+    return 20;
+  }
+  return Math.max(6.8, 18 - depth * 1.45);
+}
+
+function applyTreeTransform() {
+  if (_svgG) {
+    _svgG.setAttribute('transform', `translate(${_svgPanX},${_svgPanY}) scale(${_svgScale})`);
+  }
+  if (_svgRuler) {
+    drawTreeRuler(_svgViewportW || _svgRuler.clientWidth || _svgRuler.getBoundingClientRect().width || 0, currentTreeBp);
+  }
+}
+
+// possibleAnc 是否是 nodeId 的祖先（含自身）
+function isAncestorOf(possibleAnc, nodeId) {
+  if (!_treeParentMap) return false;
+  let curr = nodeId;
+  while (curr) {
+    if (curr === possibleAnc) return true;
+    curr = _treeParentMap[curr];
+  }
+  return false;
+}
+
+function initSvgTree() {
+  if (_svgInited) return;
+  _svgInited = true;
+  treeState.initialized = true;
+  initTreeMaps();
+  const container = document.getElementById('treeSvg');
+  if (!container) return;
+  container.style.cssText = 'display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden;position:relative;';
+
+  _svgRuler = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  _svgRuler.setAttribute('id', 'treeRulerSvg');
+  _svgRuler.style.cssText = `flex:0 0 ${SVG_RULER_H}px;width:100%;height:${SVG_RULER_H}px;display:block;overflow:visible;`;
+  container.appendChild(_svgRuler);
+
+  _svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  _svgEl.setAttribute('id', 'treeMainSvg');
+  _svgEl.style.cssText = 'flex:1;min-height:0;width:100%;display:block;overflow:hidden;cursor:grab;';
+  _svgDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  _svgEl.appendChild(_svgDefs);
+  _svgG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  _svgEl.appendChild(_svgG);
+  container.appendChild(_svgEl);
+
+  // 平移/缩放
+  let dragging = false, dsx = 0, dsy = 0, dpx = 0, dpy = 0;
+  _svgEl.addEventListener('mousedown', e => {
+    if (e.button) return;
+    dragging = true; dsx = e.clientX; dsy = e.clientY; dpx = _svgPanX; dpy = _svgPanY;
+    _svgEl.style.cursor = 'grabbing'; e.preventDefault();
+  });
+  window.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    _svgPanX = dpx + (e.clientX - dsx); _svgPanY = dpy + (e.clientY - dsy);
+    applyTreeTransform();
+  });
+  window.addEventListener('mouseup', () => { if (dragging) { dragging = false; _svgEl.style.cursor = 'grab'; } });
+  _svgEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    const f = e.deltaY < 0 ? 1.15 : (1 / 1.15);
+    const r = _svgEl.getBoundingClientRect();
+    const cx = e.clientX - r.left, cy = e.clientY - r.top;
+    _svgPanX = cx - f * (cx - _svgPanX); _svgPanY = cy - f * (cy - _svgPanY);
+    _svgScale = Math.max(0.1, Math.min(_svgScale * f, 8));
+    applyTreeTransform();
+  }, { passive: false });
+
+  document.getElementById('treeZoomIn')?.addEventListener('click', () => {
+    _svgScale = Math.min(_svgScale * 1.25, 8);
+    applyTreeTransform();
+  });
+  document.getElementById('treeZoomOut')?.addEventListener('click', () => {
+    _svgScale = Math.max(_svgScale / 1.25, 0.1);
+    applyTreeTransform();
+  });
+  document.getElementById('treeResetView')?.addEventListener('click', () => {
+    _svgPanX = 0; _svgPanY = 0; _svgScale = 1;
+    applyTreeTransform();
+  });
+  document.getElementById('treeExpandBtn')?.addEventListener('click', toggleTreeExpand);
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => { if (_svgInited) drawSvgTree(currentTreeBp); }).observe(container);
+  }
+  currentTreeBp = timeline[currentIndex];
+  drawSvgTree(currentTreeBp);
+}
+
+function drawSvgTree(bp) {
+  if (!_svgInited || !_svgEl || !_svgRuler) return;
+  currentTreeBp = bp;
+  initTreeMaps();
+  const W = _svgEl.clientWidth || _svgEl.getBoundingClientRect().width || 280;
+  const H = _svgEl.clientHeight || _svgEl.getBoundingClientRect().height || 600;
+  const compactTree = !treeState.expanded && H <= 360;
+  const contentW = Math.max(W - SVG_TREE_PAD_L - SVG_TREE_PAD_R, 180);
+  const contentH = Math.max(H - SVG_TREE_PAD_T - SVG_TREE_PAD_B, 120);
+
+  _svgViewportW = W;
+  _svgViewportH = H;
+  _svgContentW = contentW;
+  _svgContentH = contentH;
+
+  const vis = new Set();
+  data.branches.forEach(b => { if (b.age >= bp) vis.add(b.id); });
+  data.samples.filter(s => !s.isAncient && s.lat != null).forEach(s => {
+    const sId = `sample_${s.id}`;
+    const parentId = _treeParentMap[sId];
+    if (parentId && vis.has(parentId)) vis.add(sId);
+  });
+  if (!vis.size) {
+    _svgG.innerHTML = '';
+    _svgDefs.innerHTML = '';
+    applyTreeTransform();
     return;
   }
 
-  initTreeMaps();
-  currentTreeBp = timeline[currentIndex];
-
-  echartsTreeInstance = echarts.init(container, null, { renderer: 'canvas' });
-
-  const baseOpt = {
-    backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'item',
-      triggerOn: 'none',
-      backgroundColor: 'rgba(15, 23, 42, 0.95)',
-      borderColor: '#334155',
-      borderWidth: 1,
-      padding: [10, 14],
-      borderRadius: 8,
-      textStyle: { color: '#F8FAFC', fontSize: 13, fontWeight: '600' },
-      formatter(params) {
-        if (params.dataType === 'edge') return '';
-        const raw = params.data._raw;
-        if (!raw) return '';
-        if (raw.type === 'sample') {
-          const s = raw.sampleData;
-          return `${s.id}<br/>族群：${s.ethnicity||'—'}<br/>${s.family?'家族：'+s.family+'<br/>':''}<br/>地点：${s.location||'—'}`;
-        }
-        return `${raw.id}（${raw.age ? `距今${raw.age}年` : '现代'}）`;
-      },
-    },
-    series: [{
-      id: 'familyTree',
-      type: 'tree',
-      data: buildTreeOptionData(currentTreeBp, null, treeState.expanded),
-      roam: true,
-      zoom: 1,
-      scaleLimit: { min: 0.1, max: 4 },
-      top: 10, bottom: 10, left: 100, right: 10,
-      initialTreeDepth: -1,
-      expandAndCollapse: false,
-      emphasis: { disabled: true },
-      lineStyle: { curveness: 0.55 },
-      nodeGap: 12,
-      layerPadding: 120,
-      animationDuration: 550,
-      animationDurationUpdate: 550,
-      animationEasingUpdate: 'cubicInOut',
-    }],
-  };
-
-  echartsTreeInstance.setOption(baseOpt);
-  // 初始化后 ECharts 会自动在 canvas 范围内适配树布局（zoom=1）
-  // 不额外调用 autoFitTreeZoom 以避免双重压缩导致节点重叠
-
-  // 谱系树手动 tooltip
-  const treeTooltip = document.createElement('div');
-  treeTooltip.style.cssText = `
-    position: fixed;
-    background: rgba(15, 23, 42, 0.95);
-    color: #F8FAFC;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    border: 1px solid #334155;
-    backdrop-filter: blur(10px);
-    pointer-events: none;
-    display: none;
-    z-index: 9999;
-    line-height: 1.6;
-    max-width: 220px;
-  `;
-  document.body.appendChild(treeTooltip);
-  function showTreeTooltip(x, y, html) {
-    treeTooltip.innerHTML = html;
-    treeTooltip.style.display = 'block';
-    const tw = treeTooltip.offsetWidth;
-    const th = treeTooltip.offsetHeight;
-    const lx = (x + 14 + tw > window.innerWidth) ? x - tw - 10 : x + 14;
-    const ly = (y + th > window.innerHeight) ? y - th - 4 : y + 4;
-    treeTooltip.style.left = lx + 'px';
-    treeTooltip.style.top = ly + 'px';
-    treeTooltip._visible = true;
+  const yMap = computeSvgYLayout(vis, contentH);
+  const axisTicks = getTreeAxisTicks();
+  const compactXMap = compactTree ? new Map() : null;
+  function baseTreeX(id) {
+    const age = _treeNodeMap[id]?.age ?? 0;
+    return SVG_TREE_PAD_L + ageToTimelineFrac(age) * contentW;
   }
-  function hideTreeTooltip() { treeTooltip.style.display = 'none'; treeTooltip._visible = false; }
-
-  // 点击节点
-  echartsTreeInstance.on('click', (params) => {
-    const d = params.data;
-    if (!d || !d._raw) return;
-    if (d._raw.type === 'sample') {
-      highlightSampleOnMap(d._raw.sampleData);
-      const s = d._raw.sampleData;
-      showTreeTooltip(params.event.event.clientX, params.event.event.clientY,
-        `${s.id}<br/>族群：${s.ethnicity||'—'}${s.family?'<br/>家族：'+s.family:''}<br/>地点：${s.location||'—'}`);
-      // 同步激活流线高亮（样本节点也参与祖先路径高亮）
-      const newHl = (currentTreeHighlight === d.id) ? null : d.id;
-      currentTreeHighlight = newHl;
-      currentMapHighlightBranches = newHl ? calcMapHighlightBranches(d.id) : null;
-      echartsTreeInstance.setOption({ series: [{ id:'familyTree', data: buildTreeOptionData(currentTreeBp, currentTreeHighlight, treeState.expanded) }] }, false);
-      setTimeout(() => render(), 0);
-      return;
+  function nx(id) {
+    if (!compactTree) {
+      return baseTreeX(id);
     }
-    const newHl = (currentTreeHighlight === d.id) ? null : d.id;
-    if (newHl) {
-      showTreeTooltip(params.event.event.clientX, params.event.event.clientY,
-        `${d._raw.id}（${d._raw.age ? `距今${d._raw.age}年` : '现代'}）`);
+    if (compactXMap.has(id)) {
+      return compactXMap.get(id);
+    }
+    const baseX = baseTreeX(id);
+    const parentId = _treeParentMap[id];
+    if (!parentId || !vis.has(parentId)) {
+      compactXMap.set(id, baseX);
+      return baseX;
+    }
+    const node = _treeNodeMap[id];
+    const parentX = nx(parentId);
+    const minGap = node?.type === 'sample' ? 12 : 22;
+    const resolvedX = Math.max(baseX, parentX + minGap);
+    compactXMap.set(id, resolvedX);
+    return resolvedX;
+  }
+  function ny(id) {
+    const rawY = yMap.get(id) ?? (contentH / 2);
+    return SVG_TREE_PAD_T + Math.max(0, Math.min(rawY, contentH));
+  }
+
+  _svgG.innerHTML = '';
+  _svgDefs.innerHTML = '';
+  _svgGradSeq = 0;
+  const occupiedBranchLabels = [];
+
+  vis.forEach((id) => {
+    const node = _treeNodeMap[id];
+    if (!node || node.type !== 'branch') return;
+    const annotationText = treeBranchAnnotations.get(id);
+    if (!annotationText) return;
+    const parentId = _treeParentMap[id];
+    const nodeX = nx(id);
+    const nodeY = ny(id);
+    const parentY = parentId && vis.has(parentId) ? ny(parentId) : nodeY;
+    const labelY = nodeY <= parentY ? nodeY - 12 : nodeY + 16;
+    occupiedBranchLabels.push({ x: nodeX - 8, y: labelY });
+    occupiedBranchLabels.push({ x: nodeX - 8, y: nodeY + 22 });
+  });
+
+  function canPlaceBranchLabel(x, y, padX = 88, padY = 16) {
+    for (const slot of occupiedBranchLabels) {
+      if (Math.abs(slot.x - x) < padX && Math.abs(slot.y - y) < padY) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function reserveBranchLabel(x, y) {
+    occupiedBranchLabels.push({ x, y });
+  }
+
+  function placeBranchLabel(x, candidateYs, padX = 88, padY = 16, force = false) {
+    for (const y of candidateYs) {
+      if (canPlaceBranchLabel(x, y, padX, padY)) {
+        reserveBranchLabel(x, y);
+        return y;
+      }
+    }
+    if (force && candidateYs.length) {
+      reserveBranchLabel(x, candidateYs[0]);
+      return candidateYs[0];
+    }
+    return null;
+  }
+
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bgRect.setAttribute('x', '-9999'); bgRect.setAttribute('y', '-9999');
+  bgRect.setAttribute('width', '19998'); bgRect.setAttribute('height', '19998');
+  bgRect.setAttribute('fill', 'transparent');
+  bgRect.addEventListener('click', () => {
+    if (currentTreeHighlight) {
+      currentTreeHighlight = null; currentMapHighlightBranches = null;
+      drawSvgTree(currentTreeBp); render();
+    }
+  });
+  _svgG.appendChild(bgRect);
+
+  const gridG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  axisTicks.forEach(age => {
+    const x = SVG_TREE_PAD_L + ageToTimelineFrac(age) * contentW;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', String(x)); line.setAttribute('y1', '0');
+    line.setAttribute('x2', String(x)); line.setAttribute('y2', String(H + 100));
+    line.setAttribute('stroke', age === 0 ? 'rgba(74,158,255,0.16)' : 'rgba(74,158,255,0.08)');
+    line.setAttribute('stroke-width', '1'); line.setAttribute('pointer-events', 'none');
+    gridG.appendChild(line);
+  });
+  if (bp >= 0) {
+    const curX = SVG_TREE_PAD_L + ageToTimelineFrac(bp) * contentW;
+    const tl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    tl.setAttribute('x1', String(curX)); tl.setAttribute('y1', '0');
+    tl.setAttribute('x2', String(curX)); tl.setAttribute('y2', String(H + 100));
+    tl.setAttribute('stroke', 'rgba(0,225,253,0.5)');
+    tl.setAttribute('stroke-width', '1.5'); tl.setAttribute('stroke-dasharray', '5,4');
+    tl.setAttribute('pointer-events', 'none');
+    gridG.appendChild(tl);
+  }
+  _svgG.appendChild(gridG);
+
+  // 桑基流 (Edges)
+  const edgeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  vis.forEach(id => {
+    const pid = _treeParentMap[id];
+    if (!pid || !vis.has(pid)) return;
+    const pNode = _treeNodeMap[pid], cNode = _treeNodeMap[id];
+    if (!pNode || !cNode) return;
+    const px = nx(pid), py = ny(pid);
+    const cx = nx(id), cY = ny(id);
+    const idIsAnc = currentTreeHighlight && isAncestorOf(id, currentTreeHighlight);
+    const idIsDesc = currentTreeHighlight && isAncestorOf(currentTreeHighlight, id);
+    const isFuture = !!(currentTreeHighlight && id !== currentTreeHighlight && idIsDesc);
+    const isUnrelated = !!(currentTreeHighlight && !idIsAnc && !idIsDesc);
+    const pc = brightenTreeColor(pNode.color || '#4a9eff');
+    const cc = brightenTreeColor(cNode.color || '#4a9eff');
+    const isSample = cNode.type === 'sample';
+    const wTop = getTreeFlowWidth(pid);
+    const wBot = getTreeFlowWidth(id);
+    const gid = `sg${_svgGradSeq++}`;
+    const fill = ensureGradient(_svgDefs, gid, pc, cc, px, cx);
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', sankeyPathHorizontal(px, py, cx, cY, wTop, wBot));
+    path.setAttribute('fill', fill);
+    path.setAttribute('opacity', isUnrelated ? '0.08' : isFuture ? '0.2' : isSample ? '0.55' : '0.78');
+    path.setAttribute('pointer-events', 'none');
+    edgeG.appendChild(path);
+
+    if (!isSample) {
+      const edgeIsAnc = !!(idIsAnc || id === currentTreeHighlight);
+      const spine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      spine.setAttribute('d', sankeyCenterlineHorizontal(px, py, cx, cY));
+      spine.setAttribute('fill', 'none');
+      spine.setAttribute('stroke', edgeIsAnc ? 'rgba(180, 240, 255, 0.88)' : 'rgba(255, 255, 255, 0.26)');
+      spine.setAttribute('stroke-width', String(Math.max(1.1, Math.min(wBot * 0.2, 2.2))));
+      spine.setAttribute('stroke-linecap', 'round');
+      spine.setAttribute('pointer-events', 'none');
+      spine.setAttribute('opacity', isUnrelated ? '0.14' : isFuture ? '0.22' : '0.72');
+      edgeG.appendChild(spine);
+    }
+  });
+  _svgG.appendChild(edgeG);
+
+  // 节点
+  const nodeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  vis.forEach(id => {
+    const node = _treeNodeMap[id];
+    if (!node) return;
+    const nX = nx(id);
+    const nY = ny(id);
+    const color = brightenTreeColor(node.color || '#4a9eff');
+    const isSample = node.type === 'sample';
+    const isRoot = !_treeParentMap[id] || !vis.has(_treeParentMap[id]);
+    const isTarget = id === currentTreeHighlight;
+    const isAnc = !!(currentTreeHighlight && !isTarget && isAncestorOf(id, currentTreeHighlight));
+    const isDesc = !!(currentTreeHighlight && !isTarget && isAncestorOf(currentTreeHighlight, id));
+    const isFuture = !!(currentTreeHighlight && isDesc);
+    const isUnrelated = !!(currentTreeHighlight && !isTarget && !isAnc && !isDesc);
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('transform', `translate(${nX.toFixed(1)},${nY.toFixed(1)})`);
+    g.style.cursor = 'pointer';
+    g.style.opacity = isUnrelated ? '0.16' : isFuture ? '0.34' : '1';
+    g.setAttribute('data-node-id', id);
+
+    if (isSample) {
+      const sampleRadius = isTarget ? '6' : '3.8';
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('r', sampleRadius);
+      c.setAttribute('fill', color);
+      c.setAttribute('fill-opacity', isTarget ? '1' : '0.78');
+      c.setAttribute('stroke', color); c.setAttribute('stroke-width', isTarget ? '2' : '1.5');
+      if (isTarget) c.setAttribute('filter', `drop-shadow(0 0 5px ${color})`);
+      g.appendChild(c);
+      const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lbl.setAttribute('x', '-8'); lbl.setAttribute('y', '1');
+      lbl.setAttribute('text-anchor', 'end');
+      lbl.setAttribute('dominant-baseline', 'middle');
+      lbl.setAttribute('fill', color); lbl.setAttribute('font-size', '7');
+      lbl.setAttribute('pointer-events', 'none');
+      lbl.setAttribute('paint-order', 'stroke');
+      lbl.setAttribute('stroke', 'rgba(5, 10, 28, 0.98)');
+      lbl.setAttribute('stroke-width', '2.4');
+      lbl.setAttribute('stroke-linejoin', 'round');
+      lbl.textContent = node.name.startsWith('HHT') ? node.name.slice(3) : node.name;
+      g.appendChild(lbl);
+    } else if (isRoot) {
+      const tw = calcTreeTextWidth(node.name); const rh = 22;
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', String(-tw / 2)); rect.setAttribute('y', String(-rh / 2));
+      rect.setAttribute('width', String(tw)); rect.setAttribute('height', String(rh));
+      rect.setAttribute('rx', '9'); rect.setAttribute('ry', '9');
+      rect.setAttribute('fill', '#0a1628');
+      rect.setAttribute('stroke', isTarget ? '#00E1FD' : color);
+      rect.setAttribute('stroke-width', isTarget ? '2.5' : '2');
+      if (isTarget) rect.setAttribute('filter', `drop-shadow(0 0 8px ${color})`);
+      g.appendChild(rect);
+      const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('dominant-baseline', 'central');
+      lbl.setAttribute('fill', isTarget ? '#00E1FD' : color);
+      lbl.setAttribute('font-size', '11'); lbl.setAttribute('font-weight', '700');
+      lbl.setAttribute('pointer-events', 'none'); lbl.textContent = node.name;
+      g.appendChild(lbl);
     } else {
-      hideTreeTooltip();
+      const annotationText = treeBranchAnnotations.get(id);
+      const depth = getTreeNodeDepth(id);
+      const parentId = _treeParentMap[id];
+      const parentX = parentId && vis.has(parentId) ? nx(parentId) : nX;
+      const parentY = parentId && vis.has(parentId) ? ny(parentId) : nY;
+      const shortSegment = parentId && Math.abs(nX - parentX) < 52;
+      const defaultLabelY = annotationText ? -12 : shortSegment ? 16 : nY <= parentY ? -12 : 16;
+      const fallbackLabelY = defaultLabelY < 0 ? 16 : -12;
+      const allowOrdinaryLabel = (!shortSegment || compactTree) && !TREE_SUPPRESSED_BRANCH_LABELS.has(id);
+      const forceLabel = TREE_ALWAYS_LABEL_BRANCH_IDS.has(id);
+      const forcedLabelLayout = TREE_FORCED_LABEL_LAYOUT.get(id);
+      const branchChildren = (node.children || []).filter(childId => vis.has(childId) && _treeNodeMap[childId]?.type === 'branch').length;
+      const compactPriorityLabel = compactTree && allowOrdinaryLabel;
+      const centeredCompactLabel = compactTree && !annotationText;
+      const baseRadius = isTarget ? 9 : isAnc ? 7 : 5.5;
+      const bandRadius = Math.max(getTreeFlowWidth(id), getTreeFlowWidth(parentId || id)) * 0.58;
+      const r = Math.max(baseRadius, bandRadius);
+      const labelX = centeredCompactLabel ? 0 : (forcedLabelLayout?.x ?? (annotationText ? -8 : -10));
+      const labelAnchor = centeredCompactLabel ? 'middle' : 'end';
+      const labelGlobalX = nX + labelX;
+      let renderLabelY = centeredCompactLabel ? -14 : (forcedLabelLayout?.y ?? defaultLabelY);
+      let renderLabelGlobalY = nY + renderLabelY;
+      if ((forceLabel || centeredCompactLabel) && renderLabelGlobalY < SVG_TREE_PAD_T + 6) {
+        renderLabelY += SVG_TREE_PAD_T + 6 - renderLabelGlobalY;
+        renderLabelGlobalY = nY + renderLabelY;
+      }
+      const labelPadX = centeredCompactLabel ? 30 : forceLabel ? (compactTree ? 34 : 52) : annotationText ? (compactTree ? 46 : 68) : (compactTree ? 40 : 68);
+      const labelPadY = compactTree ? 9 : 12;
+      const labelCandidates = [renderLabelGlobalY];
+      const fallbackGlobalY = centeredCompactLabel ? (nY + 18) : (nY + fallbackLabelY);
+      if (Math.abs(fallbackGlobalY - renderLabelGlobalY) > 0.5) {
+        labelCandidates.push(fallbackGlobalY);
+      }
+      if (forceLabel || compactPriorityLabel) {
+        (centeredCompactLabel ? [-26, 30, -38, 42] : [24, -24, 36, -36, 48]).forEach(offset => {
+          labelCandidates.push(nY + offset);
+        });
+      }
+      let showLabel = !!(annotationText || isTarget || isAnc || forceLabel || compactPriorityLabel);
+      if (!showLabel && allowOrdinaryLabel) {
+        const placedLabelY = placeBranchLabel(labelGlobalX, labelCandidates, labelPadX, labelPadY, compactPriorityLabel);
+        if (placedLabelY != null) {
+          renderLabelGlobalY = placedLabelY;
+          renderLabelY = placedLabelY - nY;
+          showLabel = true;
+        }
+      } else if (showLabel) {
+        const placedLabelY = placeBranchLabel(labelGlobalX, labelCandidates, labelPadX, labelPadY, true);
+        if (placedLabelY != null) {
+          renderLabelGlobalY = placedLabelY;
+          renderLabelY = placedLabelY - nY;
+        }
+      }
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('r', String(r));
+      c.setAttribute('fill', isAnc ? '#00E1FD' : color);
+      c.setAttribute('fill-opacity', isTarget ? '0.42' : isAnc ? '0.32' : '0.22');
+      c.setAttribute('stroke', isAnc ? '#00E1FD' : color);
+      c.setAttribute('stroke-width', isAnc ? '2.5' : '2');
+      if (isTarget) c.setAttribute('filter', `drop-shadow(0 0 7px ${color})`);
+      g.appendChild(c);
+      if (showLabel) {
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', String(labelX)); lbl.setAttribute('y', String(renderLabelY));
+        lbl.setAttribute('text-anchor', labelAnchor); lbl.setAttribute('fill', isAnc ? '#00E1FD' : color);
+        lbl.setAttribute('font-size', forceLabel ? (compactTree ? '8.2' : '7.9') : annotationText ? (compactTree ? '8' : '8.4') : (compactTree ? '6.6' : '7.4'));
+        lbl.setAttribute('pointer-events', 'none');
+        lbl.setAttribute('paint-order', 'stroke');
+        lbl.setAttribute('stroke', 'rgba(5, 10, 28, 0.96)');
+        lbl.setAttribute('stroke-width', compactTree ? '2' : '2.4');
+        lbl.setAttribute('stroke-linejoin', 'round');
+        lbl.textContent = node.name;
+        g.appendChild(lbl);
+      }
+
+      if (annotationText) {
+        const note = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        note.setAttribute('x', '-8'); note.setAttribute('y', '22');
+        note.setAttribute('text-anchor', 'end');
+        note.setAttribute('fill', 'rgba(205, 225, 255, 0.78)');
+        note.setAttribute('font-size', '6.6');
+        note.setAttribute('pointer-events', 'none');
+        note.setAttribute('paint-order', 'stroke');
+        note.setAttribute('stroke', 'rgba(5, 10, 28, 0.96)');
+        note.setAttribute('stroke-width', '2.2');
+        note.setAttribute('stroke-linejoin', 'round');
+        note.textContent = annotationText;
+        g.appendChild(note);
+        occupiedBranchLabels.push({ x: nX, y: nY + 22 });
+      }
     }
-    currentTreeHighlight = newHl;
-    currentMapHighlightBranches = newHl ? calcMapHighlightBranches(newHl) : null;
-    // 不跳转时间轴，高亮仅为视觉叠加，保持当前时间节点可见性
-    echartsTreeInstance.setOption({ series: [{ id:'familyTree', data: buildTreeOptionData(currentTreeBp, currentTreeHighlight, treeState.expanded) }] }, false);
-    // 延迟一帧再 render，让 tooltip 有时间先展示
-    setTimeout(() => render(), 0); // 重绘地图以应用高亮/变暗效果（含流线高亮 + 时间跳转）
+
+    g.addEventListener('click', e => {
+      e.stopPropagation();
+      const newHl = currentTreeHighlight === id ? null : id;
+      currentTreeHighlight = newHl;
+      currentMapHighlightBranches = newHl ? calcMapHighlightBranches(id) : null;
+      if (isSample && node.sampleData) highlightSampleOnMap(node.sampleData);
+      drawSvgTree(currentTreeBp); render();
+    });
+    nodeG.appendChild(g);
+  });
+  _svgG.appendChild(nodeG);
+
+  applyTreeTransform();
+}
+
+function drawTreeRuler(viewportWidth, bp) {
+  if (!_svgRuler) return;
+  _svgRuler.innerHTML = '';
+  const W = viewportWidth || _svgRuler.clientWidth || _svgRuler.getBoundingClientRect().width || 280;
+  const H = SVG_RULER_H;
+  const axisY = H - 18;
+  _svgRuler.setAttribute('width', String(W));
+  _svgRuler.setAttribute('height', String(H));
+
+  const axisLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  axisLine.setAttribute('x1', '0'); axisLine.setAttribute('y1', String(axisY));
+  axisLine.setAttribute('x2', String(W)); axisLine.setAttribute('y2', String(axisY));
+  axisLine.setAttribute('stroke', 'rgba(74,158,255,0.3)');
+  axisLine.setAttribute('stroke-width', '1.2');
+  _svgRuler.appendChild(axisLine);
+
+  const ticks = getTreeAxisTicks();
+  ticks.forEach((age, index) => {
+    const x = _svgPanX + _svgScale * getTreeAxisX(age);
+    const isEdge = index === 0 || index === ticks.length - 1;
+    const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    tick.setAttribute('x1', String(x)); tick.setAttribute('y1', String(axisY));
+    tick.setAttribute('x2', String(x)); tick.setAttribute('y2', String(axisY + (isEdge ? 10 : 7)));
+    tick.setAttribute('stroke', isEdge ? 'rgba(180,215,255,0.95)' : 'rgba(120,170,240,0.7)');
+    tick.setAttribute('stroke-width', isEdge ? '2' : '1.2');
+    _svgRuler.appendChild(tick);
+
+    const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lbl.setAttribute('x', String(x)); lbl.setAttribute('y', String(axisY - 10));
+    lbl.setAttribute('text-anchor', 'middle');
+    lbl.setAttribute('fill', 'rgba(185,215,255,0.9)');
+    lbl.setAttribute('font-size', isEdge ? '10.5' : '9.5');
+    lbl.textContent = age === 0 ? '现代' : `距今 ${age} 年`;
+    _svgRuler.appendChild(lbl);
   });
 
-  // 点击空白取消高亮
-  echartsTreeInstance.getZr().on('click', (evt) => {
-    if (!evt.target && (currentTreeHighlight || treeTooltip._visible)) {
-      hideTreeTooltip();
-      currentTreeHighlight = null;
-      currentMapHighlightBranches = null;
-      echartsTreeInstance.setOption({ series: [{ id:'familyTree', data: buildTreeOptionData(currentTreeBp, null, treeState.expanded) }] }, false);
-      render(); // 恢复地图全亮
-    }
-  });
+  if (bp >= 0) {
+    const currentX = _svgPanX + _svgScale * getTreeAxisX(bp);
+    const markerLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    markerLine.setAttribute('x1', String(currentX)); markerLine.setAttribute('y1', String(axisY - 6));
+    markerLine.setAttribute('x2', String(currentX)); markerLine.setAttribute('y2', String(axisY + 12));
+    markerLine.setAttribute('stroke', 'rgba(0,225,253,0.95)');
+    markerLine.setAttribute('stroke-width', '1.6');
+    markerLine.setAttribute('stroke-dasharray', '3,3');
+    _svgRuler.appendChild(markerLine);
 
-  // 按钮
-  let zoom = 1;
-  const setZoom = (z) => {
-    zoom = Math.max(0.1, Math.min(z, 4));
-    echartsTreeInstance.setOption({ series: [{ id:'familyTree', zoom }] }, false);
-  };
-  document.getElementById("treeZoomIn")?.addEventListener("click", () => setZoom(zoom + 0.18));
-  document.getElementById("treeZoomOut")?.addEventListener("click", () => setZoom(zoom - 0.18));
-  document.getElementById("treeResetView")?.addEventListener("click", () => {
-    zoom = 1;
-    echartsTreeInstance.setOption({
-      series: [{ id: 'familyTree', zoom: 1, center: ['50%', '50%'] }],
-    }, false);
-  });
-  document.getElementById("treeExpandBtn")?.addEventListener("click", toggleTreeExpand);
+    const markerDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    markerDot.setAttribute('cx', String(currentX)); markerDot.setAttribute('cy', String(axisY));
+    markerDot.setAttribute('r', '4.2');
+    markerDot.setAttribute('fill', '#00E1FD');
+    markerDot.setAttribute('filter', 'drop-shadow(0 0 5px rgba(0,225,253,0.85))');
+    _svgRuler.appendChild(markerDot);
+  }
+}
 
-  echartsTreeInstance.on('roam', (p) => {
-    if (p.zoom) { zoom = Math.max(0.25, Math.min(zoom * p.zoom, 4)); }
-  });
+// 以下为原 ECharts 树入口函数，现委托给 SVG 版本
+function initGenealogyTree() {
+  const container = document.getElementById("treeSvg");
+  if (!container || treeState.initialized) return;
+  initSvgTree();
+  // 以下旧代码保留注释占位，防止其余引用报错
+  if (typeof echarts === 'undefined') { return; }
+  echartsTreeInstance = null; /* SVG 模式下不使用 ECharts */
 }
 
 function renderGenealogyTree(bp) {
-  if (!treeState.initialized || !echartsTreeInstance) return;
-  if (treeState.expanded) return; // 展开全屏模式：树固定显示 bp=0，不随地图时间轴变化
-  if (bp === currentTreeBp) return; // bp未变化时跳过
-  currentTreeBp = bp;
-  echartsTreeInstance.setOption({
-    series: [{ id: 'familyTree', data: buildTreeOptionData(bp, currentTreeHighlight, treeState.expanded) }],
-  }, false);
+  if (!treeState.initialized) return;
+  if (bp === currentTreeBp) return;
+  drawSvgTree(bp);
 }
 
 function countLeafNodes(nodes) {
@@ -1729,19 +2308,7 @@ function countLeafNodes(nodes) {
   return count;
 }
 
-function autoFitTreeZoom() {
-  if (!echartsTreeInstance) return;
-  const container = document.getElementById("treeSvg");
-  if (!container) return;
-  const containerH = container.clientHeight || 700;
-  const treeData = buildTreeOptionData(currentTreeBp, null, treeState.expanded);
-  const leafCount = countLeafNodes(treeData);
-  // 估算树高度：每叶节点约 34px（直径16 + nodeGap18）
-  const estimatedH = leafCount * 34;
-  const fitZoom = Math.min(1, (containerH - 20) / estimatedH);
-  zoom = Math.max(0.1, fitZoom);
-  echartsTreeInstance.setOption({ series: [{ id: 'familyTree', zoom }] }, false);
-}
+function autoFitTreeZoom() { /* SVG 模式下通过 ResizeObserver 自动适配，无需此函数 */ }
 
 function toggleTreeExpand() {
   treeState.expanded = !treeState.expanded;
@@ -1751,31 +2318,13 @@ function toggleTreeExpand() {
     card.classList.remove("tree-card--collapsing");
     card.classList.add("tree-card--expanded");
     if (btn) btn.textContent = "⤡";
-    // 展开时显示完整谱系树（bp=0）
-    currentTreeBp = -1;
-    setTimeout(() => {
-      if (echartsTreeInstance) {
-        echartsTreeInstance.resize();
-        echartsTreeInstance.setOption({ series: [{ id: 'familyTree', data: buildTreeOptionData(0, currentTreeHighlight, true) }] }, false);
-        currentTreeBp = 0;
-      }
-    }, 60);
+    setTimeout(() => { drawSvgTree(0); }, 60);
   } else {
     card.classList.add("tree-card--collapsing");
-    // 动画结束后才真正移除 expanded
     const onEnd = () => {
       card.classList.remove("tree-card--expanded", "tree-card--collapsing");
       card.removeEventListener("animationend", onEnd);
-      setTimeout(() => {
-        if (echartsTreeInstance) {
-          echartsTreeInstance.resize();
-          // 归位：重置 zoom 和 pan，并恢复当前时间对应的谱系树
-          const restoreBp = timeline[currentIndex];
-          currentTreeBp = -1;
-          echartsTreeInstance.setOption({ series: [{ id: 'familyTree', zoom: 1, center: ['50%', '50%'], data: buildTreeOptionData(restoreBp, currentTreeHighlight, false) }] }, false);
-          currentTreeBp = restoreBp;
-        }
-      }, 30);
+      setTimeout(() => { drawSvgTree(timeline[currentIndex]); }, 30);
     };
     card.addEventListener("animationend", onEnd);
     if (btn) btn.innerHTML = "&#x2922;";
@@ -1813,5 +2362,501 @@ function highlightSampleOnMap(sample) {
     btn.innerHTML = document.fullscreenElement ? collapseIcon : expandIcon;
     btn.title = document.fullscreenElement ? "退出全屏" : "全屏 (F11)";
   });
+})();
+
+(function initIntroExperience() {
+  const intro = document.getElementById("introExperience");
+  const canvas = document.getElementById("introGlobeCanvas");
+  const tribeList = document.getElementById("introTribeList");
+  const launchBtn = document.getElementById("introLaunchBtn");
+  const filmCaption = document.getElementById("introFilmCaption");
+  const leadText = document.getElementById("introLeadText");
+  if (!intro || !canvas || !tribeList || !launchBtn) return;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  const INTRO_BRANCH_IDS = ["MF247416", "BY182928", "Y20085", "Y20087", "ZQ32"];
+  const originLon = 123.45;
+  const originLat = 50.58;
+  const modernSamples = data.samples.filter((sample) => !sample.isAncient && sample.lat != null && sample.lon != null);
+  const globePoints = modernSamples
+    .map((sample) => ({
+      lat: sample.lat,
+      lon: sample.lon,
+      branchId: sample.branchSegments?.at(-1) || data.meta.branch,
+      color: brightenTreeColor(branchMap.get(sample.branchSegments?.at(-1) || data.meta.branch)?.color || "#8ec5ff"),
+      chinaFocus: sample.lon >= 73 && sample.lon <= 135 && sample.lat >= 18 && sample.lat <= 54,
+    }))
+    .slice(0, 160);
+
+  const worldWireframes = [
+    [[-168, 72], [-150, 60], [-135, 55], [-125, 50], [-118, 38], [-110, 32], [-102, 25], [-97, 19], [-91, 18], [-83, 24], [-80, 30], [-73, 45], [-60, 52], [-52, 60]],
+    [[-81, 12], [-70, 8], [-65, -5], [-60, -20], [-58, -35], [-65, -50], [-75, -54], [-78, -20], [-81, 0], [-81, 12]],
+    [[-17, 37], [0, 36], [15, 32], [25, 24], [33, 17], [38, 4], [42, -15], [32, -34], [18, -34], [8, -20], [-5, 5], [-10, 24], [-17, 37]],
+    [[-10, 36], [5, 43], [22, 45], [40, 55], [60, 58], [80, 57], [100, 60], [120, 55], [135, 50], [145, 45], [150, 35], [140, 20], [122, 8], [112, 0], [100, 6], [80, 12], [65, 25], [45, 30], [30, 36], [18, 36], [5, 41], [-10, 36]],
+    [[112, -10], [130, -15], [145, -25], [154, -35], [145, -44], [128, -41], [114, -28], [112, -10]],
+  ];
+  const chinaWireframe = [[73, 39], [79, 45], [87, 49], [96, 49], [107, 53], [124, 49], [134, 46], [132, 40], [125, 31], [118, 24], [110, 21], [101, 22], [91, 28], [84, 30], [79, 35], [73, 39]];
+  let worldBorderPaths = [];
+  let chinaBorderPaths = [];
+
+  const starField = Array.from({ length: 180 }, () => ({
+    x: Math.random(),
+    y: Math.random(),
+    size: Math.random() * 1.6 + 0.4,
+    alpha: Math.random() * 0.65 + 0.2,
+    drift: Math.random() * 0.0015 + 0.0003,
+  }));
+
+  const tribeCards = INTRO_BRANCH_IDS.map((branchId) => {
+    const samples = modernSamples.filter((sample) => sample.branchSegments?.at(-1) === branchId);
+    const locationCount = new Map();
+    samples.forEach((sample) => {
+      if (!sample.location) return;
+      locationCount.set(sample.location, (locationCount.get(sample.location) || 0) + 1);
+    });
+    const rankedLocations = [...locationCount.entries()].sort((left, right) => right[1] - left[1]);
+    const primaryLocation = rankedLocations[0]?.[0] || samples[0]?.location || "终局位置待补";
+    const primarySample = samples.find((sample) => sample.location === primaryLocation) || samples[0] || null;
+    return {
+      branchId,
+      code: branchMap.get(branchId)?.name || branchId,
+      label: treeBranchAnnotations.get(branchId) || getTreeBranchAnnotation(branchId) || branchId,
+      location: primaryLocation.replace(/,/g, " · "),
+      coord: primarySample && primarySample.lat != null && primarySample.lon != null
+        ? `${Math.abs(primarySample.lat).toFixed(1)}°${primarySample.lat >= 0 ? "N" : "S"} · ${Math.abs(primarySample.lon).toFixed(1)}°${primarySample.lon >= 0 ? "E" : "W"}`
+        : "坐标待补",
+      lat: primarySample?.lat ?? null,
+      lon: primarySample?.lon ?? null,
+      color: brightenTreeColor(branchMap.get(branchId)?.color || "#8ec5ff")
+    };
+  });
+
+  tribeList.innerHTML = tribeCards.map((card, index) => `
+    <article class="intro-tribe-callout intro-tribe-callout--${index}" data-branch-id="${card.branchId}">
+      <div class="intro-tribe-name">${card.label}</div>
+      <div class="intro-tribe-code">${card.code}</div>
+      <div class="intro-tribe-location">${card.location}</div>
+    </article>
+  `).join("");
+
+  const flowSvg = document.getElementById("introFlowSvg");
+  if (flowSvg) {
+    const originX = 120;
+    const originY = 138;
+    const destinations = [48, 98, 148, 198, 248];
+    flowSvg.innerHTML = `
+      <circle cx="${originX}" cy="${originY}" r="8" fill="#9ed8ff" opacity="0.92"></circle>
+      <circle cx="${originX}" cy="${originY}" r="18" fill="none" stroke="rgba(120,194,255,0.22)" stroke-width="1.2"></circle>
+      <text x="52" y="126" fill="rgba(232,242,255,0.9)" font-size="17">共同祖源</text>
+      <text x="52" y="149" fill="rgba(150,182,220,0.66)" font-size="11" letter-spacing="2">Y4569 ORIGIN</text>
+      ${tribeCards.map((card, index) => {
+        const targetY = destinations[index];
+        const targetX = 680;
+        const ctrlX = 340 + index * 18;
+        return `
+          <path d="M ${originX} ${originY} C ${ctrlX} ${originY}, ${ctrlX} ${targetY}, ${targetX} ${targetY}" fill="none" stroke="${card.color}" stroke-width="2.3" stroke-linecap="round" opacity="0.82"></path>
+          <circle cx="${targetX}" cy="${targetY}" r="5" fill="${card.color}" opacity="0.95"></circle>
+          <text x="530" y="${targetY - 8}" fill="rgba(239,246,255,0.92)" font-size="14">${card.label}</text>
+          <text x="530" y="${targetY + 12}" fill="rgba(150,182,220,0.7)" font-size="10" letter-spacing="1.2">${card.location}</text>
+        `;
+      }).join("")}
+    `;
+  }
+
+  if (leadText) {
+    leadText.textContent = `从远空环绕的地球镜头切入，聚焦 ${tribeCards.length} 个关键部族的终局落点、迁徙方向与现代分布。`;
+  }
+
+  let width = 0;
+  let height = 0;
+  let rafId = 0;
+  let startTime = 0;
+  const startRotation = -1.85;
+  const finalRotation = -0.42;
+  const tilt = 0.22;
+  let introReady = false;
+  let calloutsReady = false;
+  const calloutEls = Array.from(tribeList.querySelectorAll(".intro-tribe-callout"));
+
+  function geometryToPaths(geometry) {
+    if (!geometry) return [];
+    if (geometry.type === "Polygon") {
+      return geometry.coordinates.map((ring) => ring.map(([lon, lat]) => [lon, lat]));
+    }
+    if (geometry.type === "MultiPolygon") {
+      return geometry.coordinates.flatMap((polygon) => polygon.map((ring) => ring.map(([lon, lat]) => [lon, lat])));
+    }
+    return [];
+  }
+
+  fetch("https://cdn.jsdelivr.net/gh/holtzy/D3-graph-gallery@master/DATA/world.geojson")
+    .then((response) => response.ok ? response.json() : null)
+    .then((geojson) => {
+      if (!geojson?.features) return;
+      geojson.features.forEach((feature) => {
+        const paths = geometryToPaths(feature.geometry);
+        worldBorderPaths.push(...paths);
+        const featureName = `${feature.properties?.name || ""}`.toLowerCase();
+        if (featureName.includes("china")) {
+          chinaBorderPaths.push(...paths);
+        }
+      });
+    })
+    .catch(() => {});
+
+  function resizeIntroCanvas() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+
+  function easeOutCubic(value) {
+    return 1 - Math.pow(1 - value, 3);
+  }
+
+  function easeInOutCubic(value) {
+    return value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(value, max));
+  }
+
+  function withAlpha(color, alpha) {
+    if (color.startsWith("#")) {
+      const raw = color.replace("#", "");
+      const hex = raw.length === 3 ? raw.split("").map((item) => item + item).join("") : raw;
+      const red = Number.parseInt(hex.slice(0, 2), 16);
+      const green = Number.parseInt(hex.slice(2, 4), 16);
+      const blue = Number.parseInt(hex.slice(4, 6), 16);
+      return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+    }
+    return color;
+  }
+
+  function projectOnGlobe(lonDeg, latDeg, centerX, centerY, radius, globeRotation) {
+    const lon = lonDeg * Math.PI / 180 + globeRotation;
+    const lat = latDeg * Math.PI / 180;
+
+    const x = -Math.cos(lat) * Math.cos(lon);
+    const y = Math.sin(lat);
+    const z = Math.cos(lat) * Math.sin(lon);
+
+    const tiltY = y * Math.cos(tilt) - z * Math.sin(tilt);
+    const tiltZ = y * Math.sin(tilt) + z * Math.cos(tilt);
+
+    return {
+      x: centerX + x * radius,
+      y: centerY - tiltY * radius,
+      depth: tiltZ,
+      visible: tiltZ > 0,
+    };
+  }
+
+  function drawSphereGrid(centerX, centerY, radius, globeRotation) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.clip();
+
+    for (let lon = -180; lon < 180; lon += 20) {
+      ctx.beginPath();
+      let started = false;
+      for (let lat = -80; lat <= 80; lat += 4) {
+        const point = projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation);
+        if (!point.visible) {
+          started = false;
+          continue;
+        }
+        if (!started) {
+          ctx.moveTo(point.x, point.y);
+          started = true;
+        } else {
+          ctx.lineTo(point.x, point.y);
+        }
+      }
+      ctx.strokeStyle = "rgba(74, 150, 110, 0.12)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    for (let lat = -60; lat <= 60; lat += 20) {
+      ctx.beginPath();
+      let started = false;
+      for (let lon = -180; lon <= 180; lon += 4) {
+        const point = projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation);
+        if (!point.visible) {
+          started = false;
+          continue;
+        }
+        if (!started) {
+          ctx.moveTo(point.x, point.y);
+          started = true;
+        } else {
+          ctx.lineTo(point.x, point.y);
+        }
+      }
+      ctx.strokeStyle = "rgba(74, 150, 110, 0.12)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  function drawGeoWireframe(pathPoints, centerX, centerY, radius, globeRotation, strokeStyle, lineWidth) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.beginPath();
+    let started = false;
+    pathPoints.forEach(([lon, lat]) => {
+      const point = projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation);
+      if (!point.visible) {
+        started = false;
+        return;
+      }
+      if (!started) {
+        ctx.moveTo(point.x, point.y);
+        started = true;
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    });
+    ctx.strokeStyle = strokeStyle;
+    ctx.lineWidth = lineWidth;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawGeoWireframeSet(paths, centerX, centerY, radius, globeRotation, strokeStyle, lineWidth) {
+    paths.forEach((path) => {
+      drawGeoWireframe(path, centerX, centerY, radius, globeRotation, strokeStyle, lineWidth);
+    });
+  }
+
+  function drawChinaFocus(centerX, centerY, radius, globeRotation) {
+    drawGeoWireframe(chinaWireframe, centerX, centerY, radius, globeRotation, "rgba(156, 255, 196, 0.92)", 1.6);
+    const projected = chinaWireframe.map(([lon, lat]) => projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation));
+    const visible = projected.filter((point) => point.visible);
+    if (visible.length < 6) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.beginPath();
+    visible.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = "rgba(46, 180, 110, 0.12)";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function quadraticBezierPoint(startX, startY, controlX, controlY, endX, endY, t) {
+    const inverseT = 1 - t;
+    return {
+      x: inverseT * inverseT * startX + 2 * inverseT * t * controlX + t * t * endX,
+      y: inverseT * inverseT * startY + 2 * inverseT * t * controlY + t * t * endY,
+    };
+  }
+
+  function drawGlobePoints(centerX, centerY, radius, globeRotation) {
+    const sortedPoints = globePoints
+      .map((point) => ({ point, projection: projectOnGlobe(point.lon, point.lat, centerX, centerY, radius, globeRotation) }))
+      .filter(({ projection }) => projection.visible)
+      .sort((left, right) => left.projection.depth - right.projection.depth);
+
+    sortedPoints.forEach(({ point, projection }) => {
+      ctx.beginPath();
+      ctx.fillStyle = point.chinaFocus ? "rgba(220, 242, 255, 0.94)" : "rgba(126, 146, 175, 0.26)";
+      ctx.globalAlpha = point.chinaFocus ? (0.62 + projection.depth * 0.32) : (0.12 + projection.depth * 0.16);
+      ctx.arc(projection.x, projection.y, point.chinaFocus ? (1.6 + projection.depth * 2.4) : (1 + projection.depth * 1.2), 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawTribeRays(centerX, centerY, radius, globeRotation, reveal, elapsed) {
+    const originProjection = projectOnGlobe(originLon, originLat, centerX, centerY, radius, globeRotation);
+    if (!originProjection.visible) return;
+
+    ctx.beginPath();
+    ctx.fillStyle = `rgba(220, 244, 255, ${0.24 + reveal * 0.68})`;
+    ctx.arc(originProjection.x, originProjection.y, 3 + reveal * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    tribeCards.forEach((card, index) => {
+      if (card.lat == null || card.lon == null) return;
+      const targetProjection = projectOnGlobe(card.lon, card.lat, centerX, centerY, radius, globeRotation);
+      if (!targetProjection.visible) return;
+      const ctrlX = (originProjection.x + targetProjection.x) / 2 + radius * 0.18;
+      const ctrlY = Math.min(originProjection.y, targetProjection.y) - radius * 0.22 - index * 8;
+      ctx.beginPath();
+      ctx.moveTo(originProjection.x, originProjection.y);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, targetProjection.x, targetProjection.y);
+      ctx.strokeStyle = withAlpha(card.color, 0.22 + reveal * 0.42);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.fillStyle = withAlpha(card.color, 0.38 + reveal * 0.54);
+      ctx.arc(targetProjection.x, targetProjection.y, 2 + reveal * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      const pulseT = ((elapsed * 0.00006) + index * 0.19) % 1;
+      const pulse = quadraticBezierPoint(originProjection.x, originProjection.y, ctrlX, ctrlY, targetProjection.x, targetProjection.y, pulseT);
+      ctx.beginPath();
+      ctx.fillStyle = withAlpha(card.color, 0.88);
+      ctx.arc(pulse.x, pulse.y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function drawCalloutLines(centerX, centerY, radius, globeRotation, reveal) {
+    if (!calloutEls.length) return;
+    tribeCards.forEach((card, index) => {
+      if (card.lat == null || card.lon == null) return;
+      const el = calloutEls[index];
+      if (!el) return;
+      const point = projectOnGlobe(card.lon, card.lat, centerX, centerY, radius, globeRotation);
+      const rect = el.getBoundingClientRect();
+      const anchorOnLeft = rect.left > centerX;
+      const anchorX = anchorOnLeft ? rect.left : rect.right;
+      const anchorY = rect.top + rect.height * 0.5;
+      const bendX = anchorOnLeft ? point.x + 46 : point.x - 46;
+      ctx.beginPath();
+      ctx.moveTo(point.x, point.y);
+      ctx.lineTo(bendX, point.y);
+      ctx.lineTo(anchorX, anchorY);
+      ctx.strokeStyle = withAlpha(card.color, 0.18 + reveal * 0.68);
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+    });
+  }
+
+  function drawIntroFrame(timestamp) {
+    if (!startTime) startTime = timestamp;
+    const elapsed = timestamp - startTime;
+    const travelProgress = clamp(elapsed / 5400, 0, 1);
+    const cinematicProgress = easeOutCubic(travelProgress);
+    const revealProgress = clamp((elapsed - 3200) / 1300, 0, 1);
+    const homeReveal = easeInOutCubic(revealProgress);
+    const tribeReveal = easeInOutCubic(clamp((elapsed - 4100) / 1200, 0, 1));
+
+    ctx.clearRect(0, 0, width, height);
+
+    starField.forEach((star) => {
+      const y = ((star.y + elapsed * star.drift * 0.02) % 1) * height;
+      const x = star.x * width;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(225, 238, 255, ${star.alpha})`;
+      ctx.arc(x, y, star.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    const centerX = width * (0.72 - cinematicProgress * 0.04);
+    const centerY = height * (0.62 - cinematicProgress * 0.08);
+    const radius = Math.min(width, height) * (0.12 + cinematicProgress * 0.23);
+    const orbitProgress = clamp(travelProgress / 0.8, 0, 1);
+    const globeRotation = startRotation + (finalRotation - startRotation) * easeOutCubic(orbitProgress);
+
+    const atmosphere = ctx.createRadialGradient(centerX, centerY, radius * 0.35, centerX, centerY, radius * 1.4);
+    atmosphere.addColorStop(0, "rgba(108, 180, 255, 0.32)");
+    atmosphere.addColorStop(0.55, "rgba(48, 106, 220, 0.12)");
+    atmosphere.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = atmosphere;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    const globeFill = ctx.createRadialGradient(centerX - radius * 0.32, centerY - radius * 0.45, radius * 0.08, centerX, centerY, radius * 1.1);
+    globeFill.addColorStop(0, "rgba(124, 194, 255, 0.72)");
+    globeFill.addColorStop(0.28, "rgba(26, 82, 194, 0.88)");
+    globeFill.addColorStop(0.72, "rgba(4, 18, 58, 0.98)");
+    globeFill.addColorStop(1, "rgba(1, 6, 18, 1)");
+    ctx.beginPath();
+    ctx.fillStyle = globeFill;
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    drawSphereGrid(centerX, centerY, radius, globeRotation);
+    if (worldBorderPaths.length) {
+      drawGeoWireframeSet(worldBorderPaths, centerX, centerY, radius, globeRotation, "rgba(74, 198, 126, 0.22)", 0.9);
+    } else {
+      worldWireframes.forEach((path) => {
+        drawGeoWireframe(path, centerX, centerY, radius, globeRotation, "rgba(74, 198, 126, 0.18)", 1);
+      });
+    }
+
+    if (chinaBorderPaths.length) {
+      drawGeoWireframeSet(chinaBorderPaths, centerX, centerY, radius, globeRotation, "rgba(156, 255, 196, 0.95)", 1.8);
+    } else {
+      drawChinaFocus(centerX, centerY, radius, globeRotation);
+    }
+    drawGlobePoints(centerX, centerY, radius, globeRotation);
+    if (tribeReveal > 0.02) {
+      drawTribeRays(centerX, centerY, radius, globeRotation, tribeReveal, elapsed);
+      drawCalloutLines(centerX, centerY, radius, globeRotation, tribeReveal);
+    }
+
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(176, 224, 255, 0.55)";
+    ctx.lineWidth = 1.2;
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(124, 194, 255, 0.26)";
+    ctx.lineWidth = 1;
+    ctx.arc(centerX, centerY, radius * 1.08, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (filmCaption) {
+      if (travelProgress < 0.34) {
+        filmCaption.textContent = "FROM THE FAR HORIZON OF THE STEPPE";
+      } else if (travelProgress < 0.68) {
+        filmCaption.textContent = "ORBITING THE FINAL MIGRATION GLOBE";
+      } else {
+        filmCaption.textContent = "LANDING ON THE FIVE FINAL TRIBAL DESTINATIONS";
+      }
+    }
+
+    if (!introReady && travelProgress >= 0.72) {
+      introReady = true;
+      intro.classList.add("is-ready");
+    }
+
+    if (!calloutsReady && tribeReveal >= 0.08) {
+      calloutsReady = true;
+      intro.classList.add("callouts-ready");
+    }
+
+    rafId = window.requestAnimationFrame(drawIntroFrame);
+  }
+
+  function launchExperience() {
+    stopPlayback();
+    currentIndex = 0;
+    slider.value = String(currentIndex);
+    render();
+    document.body.classList.remove("intro-active");
+  }
+
+  resizeIntroCanvas();
+  window.addEventListener("resize", resizeIntroCanvas);
+  launchBtn.addEventListener("click", launchExperience);
+  rafId = window.requestAnimationFrame(drawIntroFrame);
+
+  window.addEventListener("pagehide", () => {
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+    }
+  }, { once: true });
 })();
 

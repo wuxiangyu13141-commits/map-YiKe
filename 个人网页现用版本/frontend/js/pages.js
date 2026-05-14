@@ -1,0 +1,2009 @@
+﻿/* ══════════════════════════════════════════
+   pages.js - 页面切换 + 产业/民生/人才场景
+   ══════════════════════════════════════════ */
+/* ══════════════════════════════════════════
+   导航按钮 — 页面切换逻辑
+   ══════════════════════════════════════════ */
+var currentPage = 1;
+var pageTransitioning = false;
+document.querySelectorAll('.nav-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var page = parseInt(this.getAttribute('data-page'));
+        if (page === currentPage || pageTransitioning) return;
+        document.querySelectorAll('.nav-btn').forEach(function(b) { b.classList.remove('active'); });
+        this.classList.add('active');
+        currentPage = page;
+        switchPage(page);
+    });
+});
+
+function switchPage(page) {
+    var rpanel  = document.querySelector('.right-panel');
+    var vswitch = document.getElementById('viewSwitch');
+    var tl      = document.querySelector('.timeline');
+    var dp      = document.getElementById('detailPanel');
+    var ep      = document.getElementById('energyPanel');
+    var cp      = document.getElementById('cityPanel');
+
+    var hudTitle = document.querySelector('.hud .title');
+    var hudDesc  = document.querySelector('.hud .desc');
+    var isGuided = guidedActive;
+
+    if (page === 1) {
+        /* ── 返回全球流向页 ── */
+        if (cp) cp.classList.remove('show');
+
+        if (!isGuided) {
+        document.getElementById('page1Hud').style.display = '';
+        document.getElementById('page2Hud').style.display = 'none';
+        document.getElementById('page3Hud').style.display = 'none';
+        document.getElementById('page4Hud').style.display = 'none';
+        }
+        document.getElementById('page3Right').style.display = 'none';
+        if (!isGuided) rpanel.style.display = '';
+        if (!isGuided) vswitch.style.display = '';
+        tl.classList.remove('industry-active');
+        if (!isGuided) hudTitle.textContent = '全球流向地图';
+        if (!isGuided) hudDesc.textContent = '对外贸易·煤炭能源·绿电算力 三维流向';
+        document.getElementById('yearNote').textContent = yearTexts[curYear];
+        document.querySelector('.tl-label').textContent = '时间轴 / 能源转型';
+
+        startPageTransition(function() {
+            document.getElementById('industryViz').classList.remove('active');
+            document.getElementById('industryViz').style.display = 'none';
+            document.getElementById('livelihoodViz').classList.remove('active');
+            document.getElementById('livelihoodViz').style.display = 'none';
+            document.getElementById('talentViz').classList.remove('active');
+            document.getElementById('talentViz').style.display = 'none';
+            stopIndustryAnim();
+            stopLivelihoodAnim();
+            disposeTalentChart();
+            document.getElementById('globeViz').style.display = '';
+            if (typeof world !== 'undefined' && world.controls) {
+                world.controls().enabled = true;
+                world.controls().enableRotate = true;
+            }
+            if (typeof _applyDarkGlobeMaterial === 'function') _applyDarkGlobeMaterial();
+            if (typeof refreshArcs === 'function') refreshArcs();
+            if (typeof loadedPaths !== 'undefined' && loadedPaths) world.pathsData(loadedPaths);
+        }, 'globe');
+
+    } else if (page === 2) {
+        /* ── 产业重塑：粒子过渡 → 线框地图 ── */
+        if (dp) dp.classList.remove('show');
+        if (ep) ep.classList.remove('show');
+
+        if (!isGuided) {
+        document.getElementById('page1Hud').style.display = 'none';
+        document.getElementById('page2Hud').style.display = '';
+        document.getElementById('page3Hud').style.display = 'none';
+        document.getElementById('page4Hud').style.display = 'none';
+        }
+        document.getElementById('page3Right').style.display = 'none';
+        rpanel.style.display = 'none';
+        vswitch.style.display = 'none';
+        tl.classList.add('industry-active');
+        if (!isGuided) hudTitle.textContent = '产业升级跃迁';
+        if (!isGuided) hudDesc.textContent = '新旧动能转换，科技产业连续三年跑赢传统工业';
+        document.querySelector('.tl-label').textContent = '时间轴 / 产业变革';
+        document.getElementById('yearNote').textContent = indYearTexts[curYear];
+
+        /* 粒子过渡动画 */
+        startPageTransition(function() {
+            document.getElementById('globeViz').style.display = 'none';
+            document.getElementById('livelihoodViz').classList.remove('active');
+            document.getElementById('livelihoodViz').style.display = 'none';
+            document.getElementById('talentViz').classList.remove('active');
+            document.getElementById('talentViz').style.display = 'none';
+            stopLivelihoodAnim();
+            disposeTalentChart();
+            document.getElementById('industryViz').style.display = '';
+            document.getElementById('industryViz').classList.add('active');
+            initIndustryScene();
+            updateIndustryYear(curYear);
+        });
+
+    } else if (page === 3) {
+        /* ── 民生温度：流体融合 ── */
+        if (dp) dp.classList.remove('show');
+        if (ep) ep.classList.remove('show');
+        if (cp) cp.classList.remove('show');
+
+        if (!isGuided) {
+        document.getElementById('page1Hud').style.display = 'none';
+        document.getElementById('page2Hud').style.display = 'none';
+        document.getElementById('page3Hud').style.display = '';
+        document.getElementById('page4Hud').style.display = 'none';
+        }
+        document.getElementById('page3Right').style.display = isGuided ? 'none' : 'flex';
+        rpanel.style.display = 'none';
+        vswitch.style.display = 'none';
+        tl.classList.add('industry-active');
+        if (!isGuided) hudTitle.textContent = '民生温度';
+        if (!isGuided) hudDesc.textContent = '城乡居民人均可支配收入差距变迁';
+        document.querySelector('.tl-label').textContent = '时间轴 / 城乡收入';
+        document.getElementById('yearNote').textContent = lhYearTexts[curYear];
+
+        startPageTransition(function() {
+            document.getElementById('globeViz').style.display = 'none';
+            document.getElementById('industryViz').classList.remove('active');
+            document.getElementById('industryViz').style.display = 'none';
+            document.getElementById('talentViz').classList.remove('active');
+            document.getElementById('talentViz').style.display = 'none';
+            stopIndustryAnim();
+            disposeTalentChart();
+            document.getElementById('livelihoodViz').style.display = '';
+            document.getElementById('livelihoodViz').classList.add('active');
+            initLivelihoodScene();
+        });
+    } else if (page === 4) {
+        /* ── 人才着陆点 ── */
+        if (dp) dp.classList.remove('show');
+        if (ep) ep.classList.remove('show');
+        if (cp) cp.classList.remove('show');
+
+        if (!isGuided) {
+        document.getElementById('page1Hud').style.display = 'none';
+        document.getElementById('page2Hud').style.display = 'none';
+        document.getElementById('page3Hud').style.display = 'none';
+        document.getElementById('page4Hud').style.display = '';
+        }
+        document.getElementById('page3Right').style.display = 'none';
+        rpanel.style.display = 'none';
+        vswitch.style.display = 'none';
+        tl.classList.add('industry-active');
+        if (!isGuided) hudTitle.textContent = '人才着陆点';
+        if (!isGuided) hudDesc.textContent = '各行业薪资水平、需求增速与就业容量';
+        document.querySelector('.tl-label').textContent = '时间轴 / 就业市场';
+        document.getElementById('yearNote').textContent = talentYearTexts[curYear] || '';
+
+        startPageTransition(function() {
+            document.getElementById('globeViz').style.display = 'none';
+            document.getElementById('industryViz').classList.remove('active');
+            document.getElementById('industryViz').style.display = 'none';
+            document.getElementById('livelihoodViz').classList.remove('active');
+            document.getElementById('livelihoodViz').style.display = 'none';
+            stopIndustryAnim();
+            stopLivelihoodAnim();
+            document.getElementById('talentViz').style.display = '';
+            document.getElementById('talentViz').classList.add('active');
+            initTalentScene();
+        });
+    }
+}
+
+/* ══════════════════════════════════════════
+   贸易可视化图表（交互式TOP6）
+
+   ██  首页粒子入场动画（页面首次加载）                        ██
+   ══════════════════════════════════════════════════════════════ */
+(function globeEntrance() {
+    var ov = document.getElementById('transOverlay');
+    var W = window.innerWidth, H = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    ov.width = W * dpr; ov.height = H * dpr;
+    ov.style.width = W + 'px'; ov.style.height = H + 'px';
+    ov.style.display = 'block';
+    var ctx = ov.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    var N = 2500;
+    var cxW = W * 0.55, cyH = H * 0.48;
+    var globeR = Math.min(W, H) * 0.28;
+    var pts = [];
+
+    for (var i = 0; i < N; i++) {
+        /* 起始：全屏随机 */
+        var sx = Math.random() * W;
+        var sy = Math.random() * H;
+        /* 目标：球形表面分布 */
+        var theta = Math.random() * Math.PI * 2;
+        var phi = Math.acos(2 * Math.random() - 1);
+        var r = globeR * (0.85 + Math.random() * 0.3);
+        var tx = cxW + Math.sin(phi) * Math.cos(theta) * r;
+        var ty = cyH + Math.sin(phi) * Math.sin(theta) * r * 0.95;
+        /* 颜色：主蓝+部分青+金色点缀 */
+        var hue;
+        var rnd = Math.random();
+        if (rnd < 0.12) hue = 2;      /* 金色 */
+        else if (rnd < 0.4) hue = 1;  /* 青色 */
+        else hue = 0;                 /* 蓝色 */
+        pts.push({
+            sx: sx, sy: sy, tx: tx, ty: ty,
+            hue: hue,
+            size: 0.5 + Math.random() * 1.8,
+            delay: Math.random() * 0.2,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+
+    var start = performance.now();
+    var duration = 2400;
+
+    function easeOutQuart(t) { return 1 - Math.pow(1 - t, 4); }
+
+    function frame(ts) {
+        var elapsed = ts - start;
+        var p = Math.min(elapsed / duration, 1);
+
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0, 0, ov.width, ov.height);
+        ctx.restore();
+
+        /* 背景暗幕：前期遮住globe，后期淡出 */
+        var bgA;
+        if (p < 0.35) bgA = 0.95;
+        else bgA = 0.95 * (1 - (p - 0.35) / 0.65);
+        bgA = Math.max(0, bgA);
+        if (bgA > 0.001) {
+            ctx.fillStyle = 'rgba(5,5,16,' + bgA.toFixed(3) + ')';
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        /* 粒子 */
+        for (var i = 0; i < N; i++) {
+            var pt = pts[i];
+            var t = Math.max(0, Math.min(1, (p - pt.delay) / (0.75 - pt.delay)));
+            var ease = easeOutQuart(t);
+
+            var px = pt.sx + (pt.tx - pt.sx) * ease;
+            var py = pt.sy + (pt.ty - pt.sy) * ease;
+            /* 飞行微扰 */
+            var wobble = (1 - ease) * 5;
+            px += Math.sin(elapsed * 0.004 + pt.phase) * wobble;
+            py += Math.cos(elapsed * 0.005 + pt.phase * 1.3) * wobble;
+
+            /* 淡入→到达后渐隐 */
+            var alpha;
+            if (t < 0.1) alpha = t / 0.1;
+            else if (p < 0.6) alpha = 1;
+            else alpha = Math.max(0, 1 - (p - 0.6) / 0.4);
+
+            var sz = pt.size * (0.3 + ease * 0.7);
+
+            if (pt.hue === 2) {
+                ctx.fillStyle = 'rgba(0,210,168,' + (alpha * 0.8).toFixed(3) + ')';
+            } else if (pt.hue === 1) {
+                ctx.fillStyle = 'rgba(0,210,168,' + (alpha * 0.75).toFixed(3) + ')';
+            } else {
+                ctx.fillStyle = 'rgba(26,95,181,' + alpha.toFixed(3) + ')';
+            }
+            ctx.beginPath();
+            ctx.arc(px, py, sz, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        /* 球心辉光 */
+        if (p > 0.2 && p < 0.8) {
+            var gT = p < 0.4 ? (p - 0.2) / 0.2 : (0.8 - p) / 0.4;
+            gT = Math.max(0, Math.min(1, gT));
+            var grd = ctx.createRadialGradient(cxW, cyH, 0, cxW, cyH, globeR * 0.6);
+            grd.addColorStop(0, 'rgba(0,160,255,' + (0.1 * gT).toFixed(3) + ')');
+            grd.addColorStop(0.5, 'rgba(0,100,200,' + (0.04 * gT).toFixed(3) + ')');
+            grd.addColorStop(1, 'rgba(0,100,200,0)');
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        if (p < 1) {
+            requestAnimationFrame(frame);
+        } else {
+            ctx.save();
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.clearRect(0, 0, ov.width, ov.height);
+            ctx.restore();
+            ov.style.display = 'none';
+        }
+    }
+    requestAnimationFrame(frame);
+})();
+
+/* ══════════════════════════════════════════════════════════════
+   ██  粒子过渡动画（页面切换）                                 ██
+   ══════════════════════════════════════════════════════════════ */
+function startPageTransition(onMidpoint, mode) {
+    pageTransitioning = true;
+    var ov = document.getElementById('transOverlay');
+    var W = window.innerWidth, H = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    ov.width = W * dpr; ov.height = H * dpr;
+    ov.style.width = W + 'px'; ov.style.height = H + 'px';
+    ov.style.display = 'block';
+    var ctx = ov.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    var start = performance.now();
+    var midFired = false;
+
+    /* ── 粒子模式共用变量 ── */
+    var ptsArr = [];
+    var cxW = W * 0.55, cyH = H * 0.48;
+    var total, fadeIn;
+
+    if (mode === 'globe') {
+        /* 粒子向球形聚合 */
+        total = 1600;
+        fadeIn = 450;
+        var N = 1800;
+        var globeR = Math.min(W, H) * 0.28;
+        for (var i = 0; i < N; i++) {
+            var theta = Math.random() * Math.PI * 2;
+            var phi = Math.acos(2 * Math.random() - 1);
+            var r = globeR * (0.85 + Math.random() * 0.3);
+            var rnd = Math.random();
+            ptsArr.push({
+                sx: Math.random() * W, sy: Math.random() * H,
+                tx: cxW + Math.sin(phi) * Math.cos(theta) * r,
+                ty: cyH + Math.sin(phi) * Math.sin(theta) * r * 0.95,
+                hue: rnd < 0.12 ? 2 : rnd < 0.4 ? 1 : 0,
+                size: 0.5 + Math.random() * 1.6,
+                delay: Math.random() * 0.15,
+                phase: Math.random() * Math.PI * 2
+            });
+        }
+    } else {
+        /* 普通暗幕淡入淡出 */
+        fadeIn = 400;
+        total = fadeIn + 100 + 500;
+    }
+
+    function easeOQ(t) { return 1 - Math.pow(1 - t, 4); }
+
+    function frame(ts) {
+        var elapsed = ts - start;
+        var p = Math.min(elapsed / total, 1);
+
+        ctx.save();
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0, 0, ov.width, ov.height);
+        ctx.restore();
+
+        if (elapsed >= fadeIn * 0.85 && !midFired) { midFired = true; onMidpoint(); }
+
+        if (mode === 'globe') {
+            /* 暗幕 */
+            var bgA;
+            if (p < 0.25) bgA = p / 0.25 * 0.92;
+            else if (p < 0.45) bgA = 0.92;
+            else bgA = 0.92 * (1 - (p - 0.45) / 0.55);
+            bgA = Math.max(0, bgA);
+            if (bgA > 0.001) {
+                ctx.fillStyle = 'rgba(5,5,16,' + bgA.toFixed(3) + ')';
+                ctx.fillRect(0, 0, W, H);
+            }
+            /* 粒子 */
+            for (var i = 0; i < ptsArr.length; i++) {
+                var pt = ptsArr[i];
+                var t = Math.max(0, Math.min(1, (p - pt.delay) / (0.7 - pt.delay)));
+                var ease = easeOQ(t);
+                var px = pt.sx + (pt.tx - pt.sx) * ease;
+                var py = pt.sy + (pt.ty - pt.sy) * ease;
+                px += Math.sin(elapsed * 0.004 + pt.phase) * (1 - ease) * 5;
+                py += Math.cos(elapsed * 0.005 + pt.phase * 1.3) * (1 - ease) * 4;
+                var alpha;
+                if (t < 0.08) alpha = t / 0.08;
+                else if (p < 0.55) alpha = 1;
+                else alpha = Math.max(0, 1 - (p - 0.55) / 0.45);
+                var sz = pt.size * (0.3 + ease * 0.7);
+                if (pt.hue === 2) ctx.fillStyle = 'rgba(0,210,168,' + (alpha * 0.8).toFixed(3) + ')';
+                else if (pt.hue === 1) ctx.fillStyle = 'rgba(0,210,168,' + (alpha * 0.7).toFixed(3) + ')';
+                else ctx.fillStyle = 'rgba(26,95,181,' + alpha.toFixed(3) + ')';
+                ctx.beginPath();
+                ctx.arc(px, py, sz, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        } else {
+            /* 普通淡入淡出 */
+            var alpha2;
+            if (elapsed < fadeIn) alpha2 = elapsed / fadeIn;
+            else if (elapsed < fadeIn + 100) alpha2 = 1;
+            else alpha2 = 1 - (elapsed - fadeIn - 100) / 500;
+            alpha2 = Math.max(0, Math.min(1, alpha2));
+            ctx.fillStyle = 'rgba(5,5,16,' + alpha2.toFixed(3) + ')';
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        if (p < 1) {
+            requestAnimationFrame(frame);
+        } else {
+            ctx.save();
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.clearRect(0, 0, ov.width, ov.height);
+            ctx.restore();
+            ov.style.display = 'none';
+            pageTransitioning = false;
+        }
+    }
+    requestAnimationFrame(frame);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ██  产业重塑页面（Page 2）— Canvas 2D 透视柱状图           ██
+   ══════════════════════════════════════════════════════════════
+   - GeoJSON 内蒙古边界 → 透视投影线框
+   - 12 盟市双柱体（传统/科技）伪 3D
+   - 鼠标拖拽旋转 + 滚轮缩放（半自由视角）
+   - 点击柱体弹出详情面板
+   ══════════════════════════════════════════════════════════════ */
+
+var indCanvas, indCtx;
+var indAnimId = null;
+var indInited = false;
+var indGeoRaw = null;
+var indCityRects = [];
+
+/* ── 视角参数（鼠标可调） ── */
+var cam = {
+    rotY: 0,           /* 水平旋转 */
+    tiltX: -0.62,      /* 俯仰（负值=从南侧俯瞰，北在上） */
+    zoom: 1.65,        /* 缩放 */
+    cx: 80, cy: 80     /* 右移避开左面板，下移居中 */
+};
+var camDrag = false, camPrev = {x:0, y:0};
+
+/* 地理范围 */
+var GEO = { minLng:97.5, maxLng:126.5, minLat:37.5, maxLat:53.5 };
+var geoCx = (GEO.minLng + GEO.maxLng) / 2;
+var geoCy = (GEO.minLat + GEO.maxLat) / 2;
+
+/* 3D → 2D 透视投影 */
+
+function project(x3, y3, z3, W, H) {
+    /* 绕 Y 轴旋转 */
+    var cosR = Math.cos(cam.rotY), sinR = Math.sin(cam.rotY);
+    var rx = x3 * cosR - z3 * sinR;
+    var rz = x3 * sinR + z3 * cosR;
+
+    /* 俯仰（绕 X 轴） */
+    var cosT = Math.cos(cam.tiltX), sinT = Math.sin(cam.tiltX);
+    var ry = y3 * cosT - rz * sinT;
+    var rz2 = y3 * sinT + rz * cosT;
+
+    /* 透视 */
+    var fov = 600 * cam.zoom;
+    var depth = rz2 + 500;
+    if (depth < 50) depth = 50;
+    var scale = fov / depth;
+
+    return {
+        x: W / 2 + rx * scale + cam.cx,
+        y: H / 2 - ry * scale + cam.cy,
+        s: scale,
+        z: depth
+    };
+}
+
+/* 经纬度 → 3D 世界坐标（平面） */
+function geoTo3D(lng, lat) {
+    return {
+        x: (lng - geoCx) * 18,
+        y: 0,
+        z: (lat - geoCy) * 18    /* 北方（高纬）→ 正Z，配合负tilt实现北在上方 */
+    };
+}
+
+/* ── 12 盟市坐标 + 产业数据 ── */
+
+function drawGridFloor(ctx, W, H) {
+    var step = 28;
+    var range = 600;
+    ctx.save();
+    /* 网格线 — 中心亮，远处渐隐 */
+    for (var gx = -range; gx <= range; gx += step) {
+        var a = project(gx, 0, -range, W, H);
+        var b = project(gx, 0, range, W, H);
+        var dist = Math.abs(gx) / range;
+        var alpha = 0.17 * (1 - dist * 0.65);
+        ctx.strokeStyle = 'rgba(0,200,208,' + alpha.toFixed(4) + ')';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    for (var gz = -range; gz <= range; gz += step) {
+        var c = project(-range, 0, gz, W, H);
+        var d = project(range, 0, gz, W, H);
+        var distZ = Math.abs(gz) / range;
+        var alphaZ = 0.17 * (1 - distZ * 0.65);
+        ctx.strokeStyle = 'rgba(0,200,208,' + alphaZ.toFixed(4) + ')';
+        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.stroke();
+    }
+
+    /* 地平线渐变雾 — 底部向上淡化 */
+    var horizon = project(0, 0, range * 0.9, W, H);
+    var fogY = Math.min(H, horizon.y);
+    var fogH = H - fogY;
+    if (fogH > 10) {
+        var fog = ctx.createLinearGradient(0, fogY, 0, H);
+        fog.addColorStop(0, 'rgba(0,200,208,0)');
+        fog.addColorStop(0.3, 'rgba(0,180,255,0.015)');
+        fog.addColorStop(1, 'rgba(0,120,200,0.035)');
+        ctx.fillStyle = fog;
+        ctx.fillRect(0, fogY, W, fogH);
+    }
+
+    /* 地平线光线 */
+    var hlY = project(0, 0, range * 0.85, W, H).y;
+    var hl = ctx.createLinearGradient(W * 0.15, 0, W * 0.85, 0);
+    hl.addColorStop(0, 'rgba(0,200,208,0)');
+    hl.addColorStop(0.3, 'rgba(0,200,208,0.04)');
+    hl.addColorStop(0.5, 'rgba(0,200,208,0.06)');
+    hl.addColorStop(0.7, 'rgba(0,200,208,0.04)');
+    hl.addColorStop(1, 'rgba(0,200,208,0)');
+    ctx.fillStyle = hl;
+    ctx.fillRect(0, hlY - 1, W, 2);
+
+    ctx.restore();
+}
+
+/* ═══ 绘制地图边界（3D 投影） ═══ */
+function drawMapBorder(ctx, W, H, t) {
+    if (!indGeoRaw) return;
+    var pulse = 0.2 + 0.08 * Math.sin(t * 1.5);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,200,208,' + pulse.toFixed(3) + ')';
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = 'rgba(0,200,208,0.25)';
+    ctx.shadowBlur = 5;
+
+    indGeoRaw.features.forEach(function(f) {
+        var g = f.geometry;
+        if (!g) return;
+        var rings = [];
+        if (g.type === 'Polygon') rings = [g.coordinates[0]];
+        else if (g.type === 'MultiPolygon') {
+            g.coordinates.forEach(function(p) { rings.push(p[0]); });
+        }
+        rings.forEach(function(ring) {
+            ctx.beginPath();
+            ring.forEach(function(c, i) {
+                var p3 = geoTo3D(c[0], c[1]);
+                var p2 = project(p3.x, 0, p3.z, W, H);
+                if (i === 0) ctx.moveTo(p2.x, p2.y);
+                else ctx.lineTo(p2.x, p2.y);
+            });
+            ctx.closePath();
+            ctx.stroke();
+        });
+    });
+    ctx.restore();
+}
+
+/* ═══ 绘制伪 3D 柱体 ═══ */
+function drawBar(ctx, bx, bz, barH, W, H, faceCol, topCol, sideCol, glowCol, alpha) {
+    var bw = 5, bd = 5;
+    /* 4个底角 + 4个顶角 */
+    var b0 = project(bx - bw, 0, bz - bd, W, H);
+    var b1 = project(bx + bw, 0, bz - bd, W, H);
+    var b2 = project(bx + bw, 0, bz + bd, W, H);
+    var b3 = project(bx - bw, 0, bz + bd, W, H);
+    var t0 = project(bx - bw, barH, bz - bd, W, H);
+    var t1 = project(bx + bw, barH, bz - bd, W, H);
+    var t2 = project(bx + bw, barH, bz + bd, W, H);
+    var t3 = project(bx - bw, barH, bz + bd, W, H);
+
+    ctx.globalAlpha = alpha;
+
+    /* 正面 */
+    ctx.fillStyle = faceCol;
+    ctx.beginPath();
+    ctx.moveTo(b0.x, b0.y); ctx.lineTo(b1.x, b1.y);
+    ctx.lineTo(t1.x, t1.y); ctx.lineTo(t0.x, t0.y);
+    ctx.closePath(); ctx.fill();
+
+    /* 右侧面 */
+    ctx.fillStyle = sideCol;
+    ctx.beginPath();
+    ctx.moveTo(b1.x, b1.y); ctx.lineTo(b2.x, b2.y);
+    ctx.lineTo(t2.x, t2.y); ctx.lineTo(t1.x, t1.y);
+    ctx.closePath(); ctx.fill();
+
+    /* 顶面 */
+    ctx.fillStyle = topCol;
+    ctx.beginPath();
+    ctx.moveTo(t0.x, t0.y); ctx.lineTo(t1.x, t1.y);
+    ctx.lineTo(t2.x, t2.y); ctx.lineTo(t3.x, t3.y);
+    ctx.closePath(); ctx.fill();
+
+    /* 顶部辉光线 */
+    ctx.strokeStyle = glowCol;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = glowCol;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.moveTo(t0.x, t0.y); ctx.lineTo(t1.x, t1.y);
+    ctx.lineTo(t2.x, t2.y); ctx.lineTo(t3.x, t3.y);
+    ctx.closePath(); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    /* 边框 */
+    ctx.strokeStyle = glowCol;
+    ctx.lineWidth = 0.5;
+    ctx.globalAlpha = alpha * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(b0.x, b0.y); ctx.lineTo(t0.x, t0.y);
+    ctx.moveTo(b1.x, b1.y); ctx.lineTo(t1.x, t1.y);
+    ctx.moveTo(b2.x, b2.y); ctx.lineTo(t2.x, t2.y);
+    ctx.stroke();
+
+    ctx.globalAlpha = 1;
+}
+
+/* ═══ 绘制所有城市柱状图 ═══ */
+function drawAllBars(ctx, W, H, year, t) {
+    var yi = year - 2021;
+    indCityRects = [];
+
+    var maxTrad = 0, maxTech = 0;
+    industryCities.forEach(function(c) {
+        if (c.trad[yi] > maxTrad) maxTrad = c.trad[yi];
+        if (c.tech[yi] > maxTech) maxTech = c.tech[yi];
+    });
+
+    var gap = 7;
+    var hScaleT = 0.04, hScaleS = 0.065;
+
+    /* 按深度排序（远的先画） */
+    var items = industryCities.map(function(c, i) {
+        var p = geoTo3D(c.coord[0], c.coord[1]);
+        var center = project(p.x, 0, p.z, W, H);
+        return { c: c, i: i, p3: p, depth: center.z };
+    });
+    items.sort(function(a, b) { return b.depth - a.depth; });
+
+    items.forEach(function(item) {
+        var c = item.c, idx = item.i, p3 = item.p3;
+        var tradH = 8 + (c.trad[yi] / maxTrad) * 180;
+        var techH = 8 + (c.tech[yi] / maxTech) * 240;
+        var pulse = 0.8 + 0.2 * Math.sin(t * 2 + idx * 0.5);
+
+        /* 底座发光 */
+        var baseP = project(p3.x, 0, p3.z, W, H);
+        var grd = ctx.createRadialGradient(baseP.x, baseP.y, 0, baseP.x, baseP.y, 15 * baseP.s);
+        grd.addColorStop(0, 'rgba(0,200,208,0.06)');
+        grd.addColorStop(1, 'rgba(0,200,208,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(baseP.x, baseP.y, 18 * baseP.s, 0, Math.PI * 2);
+        ctx.fill();
+
+        /* 传统工业柱（左偏） */
+        drawBar(ctx, p3.x - gap, p3.z, tradH, W, H,
+            'rgba(180,45,0,' + (0.85 * pulse).toFixed(3) + ')',
+            'rgba(255,110,30,' + (0.75 * pulse).toFixed(3) + ')',
+            'rgba(130,30,0,' + (0.7 * pulse).toFixed(3) + ')',
+            'rgba(210,100,68,0.7)', pulse);
+
+        /* 科技柱（右偏） */
+        drawBar(ctx, p3.x + gap, p3.z, techH, W, H,
+            'rgba(0,170,190,' + (0.85 * pulse).toFixed(3) + ')',
+            'rgba(0,200,208,' + (0.7 * pulse).toFixed(3) + ')',
+            'rgba(0,100,120,' + (0.65 * pulse).toFixed(3) + ')',
+            'rgba(0,200,208,0.8)', pulse);
+
+        /* 碰撞区（用屏幕坐标） */
+        var screenTrad = project(p3.x - gap, tradH / 2, p3.z, W, H);
+        var screenTech = project(p3.x + gap, techH / 2, p3.z, W, H);
+        var hitW = 20 * screenTrad.s, hitH = tradH * screenTrad.s * 0.8;
+        indCityRects.push({ x: screenTrad.x - hitW/2, y: screenTrad.y - hitH/2, w: hitW, h: hitH, cityIdx: idx });
+        hitW = 20 * screenTech.s; hitH = techH * screenTech.s * 0.8;
+        indCityRects.push({ x: screenTech.x - hitW/2, y: screenTech.y - hitH/2, w: hitW, h: hitH, cityIdx: idx });
+
+        /* 标签 */
+        var topH = Math.max(tradH, techH);
+        var labelP = project(p3.x, topH + 28, p3.z, W, H);
+        var techPct = (c.tech[yi] / (c.trad[yi] + c.tech[yi]) * 100).toFixed(0);
+
+        ctx.save();
+        ctx.font = 'bold ' + Math.max(9, 11 * labelP.s).toFixed(0) + 'px "Noto Sans SC","Microsoft YaHei",sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        /* 标签背景框 */
+        var tw = ctx.measureText(c.name).width;
+        var lbW = Math.max(tw + 14, 50);
+        var lbH = 38;
+        ctx.fillStyle = 'rgba(6,14,30,0.75)';
+        ctx.strokeStyle = 'rgba(0,200,208,0.2)';
+        ctx.lineWidth = 1;
+        var rx = labelP.x - lbW/2, ry2 = labelP.y - lbH/2, rr = 4;
+        ctx.beginPath();
+        ctx.moveTo(rx + rr, ry2);
+        ctx.lineTo(rx + lbW - rr, ry2);
+        ctx.quadraticCurveTo(rx + lbW, ry2, rx + lbW, ry2 + rr);
+        ctx.lineTo(rx + lbW, ry2 + lbH - rr);
+        ctx.quadraticCurveTo(rx + lbW, ry2 + lbH, rx + lbW - rr, ry2 + lbH);
+        ctx.lineTo(rx + rr, ry2 + lbH);
+        ctx.quadraticCurveTo(rx, ry2 + lbH, rx, ry2 + lbH - rr);
+        ctx.lineTo(rx, ry2 + rr);
+        ctx.quadraticCurveTo(rx, ry2, rx + rr, ry2);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        /* 连接线 */
+        var topP = project(p3.x, topH, p3.z, W, H);
+        ctx.strokeStyle = 'rgba(0,200,208,0.1)';
+        ctx.beginPath();
+        ctx.moveTo(topP.x, topP.y); ctx.lineTo(labelP.x, labelP.y + lbH/2);
+        ctx.stroke();
+
+        /* 城市名 + 科技% */
+        ctx.fillStyle = '#00d4aa';
+        ctx.fillText(c.name, labelP.x, labelP.y - 8);
+        ctx.font = Math.max(7, 8 * labelP.s).toFixed(0) + 'px Orbitron,monospace';
+        ctx.fillStyle = 'rgba(0,200,208,0.7)';
+        ctx.fillText('科技 ' + techPct + '%', labelP.x, labelP.y + 10);
+        ctx.restore();
+    });
+}
+
+/* ═══ 粒子入场动画系统 ═══ */
+var indEntrance = {
+    active: false,
+    startTime: 0,
+    duration: 2200,
+    particles: []
+};
+
+function buildEntranceParticles(W, H) {
+    var pts = [];
+    var N = 3000;
+    var yi = curYear - 2021;
+    /* 计算所有柱体目标屏幕坐标 */
+    var targets = [];
+    var maxTrad = 0, maxTech = 0;
+    industryCities.forEach(function(c) {
+        if (c.trad[yi] > maxTrad) maxTrad = c.trad[yi];
+        if (c.tech[yi] > maxTech) maxTech = c.tech[yi];
+    });
+    industryCities.forEach(function(c, idx) {
+        var p3 = geoTo3D(c.coord[0], c.coord[1]);
+        var tradH = 8 + (c.trad[yi] / maxTrad) * 180;
+        var techH = 8 + (c.tech[yi] / maxTech) * 240;
+        /* 沿柱体高度均匀采样目标点 */
+        for (var h = 0; h < tradH; h += 4) {
+            var sp = project(p3.x - 7, h, p3.z, W, H);
+            targets.push({ x: sp.x, y: sp.y, hue: 0, depth: sp.z });
+        }
+        for (var h2 = 0; h2 < techH; h2 += 4) {
+            var sp2 = project(p3.x + 7, h2, p3.z, W, H);
+            targets.push({ x: sp2.x, y: sp2.y, hue: 1, depth: sp2.z });
+        }
+    });
+    /* 也采样地图边界作目标 */
+    if (indGeoRaw) {
+        indGeoRaw.features.forEach(function(f) {
+            var g = f.geometry;
+            if (!g) return;
+            var rings = [];
+            if (g.type === 'Polygon') rings = [g.coordinates[0]];
+            else if (g.type === 'MultiPolygon') g.coordinates.forEach(function(p) { rings.push(p[0]); });
+            rings.forEach(function(ring) {
+                for (var ri = 0; ri < ring.length; ri += 8) {
+                    var pp = geoTo3D(ring[ri][0], ring[ri][1]);
+                    var sp3 = project(pp.x, 0, pp.z, W, H);
+                    targets.push({ x: sp3.x, y: sp3.y, hue: 2, depth: sp3.z });
+                }
+            });
+        });
+    }
+
+    /* 生成粒子 */
+    for (var i = 0; i < N; i++) {
+        var tgt;
+        if (targets.length > 0) {
+            tgt = targets[i % targets.length];
+        } else {
+            tgt = { x: W * 0.5 + (Math.random() - 0.5) * W * 0.6, y: H * 0.5 + (Math.random() - 0.5) * H * 0.5, hue: Math.random() > 0.8 ? 0 : 1 };
+        }
+        /* 起始：屏幕随机 */
+        var sx = Math.random() * W;
+        var sy = Math.random() * H;
+        /* 延迟：距离目标越远的延迟越小(先到) → 营造汇聚感 */
+        var dist = Math.sqrt((sx - tgt.x) * (sx - tgt.x) + (sy - tgt.y) * (sy - tgt.y));
+        var maxDist = Math.sqrt(W * W + H * H);
+        pts.push({
+            sx: sx, sy: sy,
+            tx: tgt.x + (Math.random() - 0.5) * 3,
+            ty: tgt.y + (Math.random() - 0.5) * 3,
+            hue: tgt.hue,
+            size: 0.6 + Math.random() * 1.6,
+            delay: (1 - dist / maxDist) * 0.15 + Math.random() * 0.12,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+    return pts;
+}
+
+function drawEntranceParticles(ctx, W, H, elapsed) {
+    var ent = indEntrance;
+    var p = Math.min(elapsed / ent.duration, 1);
+    var pts = ent.particles;
+
+    for (var i = 0; i < pts.length; i++) {
+        var pt = pts[i];
+        var t = Math.max(0, Math.min(1, (p - pt.delay) / (0.7 - pt.delay)));
+        /* 缓动：先快后慢 */
+        var ease = 1 - Math.pow(1 - t, 3);
+
+        var px = pt.sx + (pt.tx - pt.sx) * ease;
+        var py = pt.sy + (pt.ty - pt.sy) * ease;
+        /* 飞行途中的微扰 */
+        var wobble = (1 - ease) * 6;
+        px += Math.sin(elapsed * 0.005 + pt.phase) * wobble;
+        py += Math.cos(elapsed * 0.006 + pt.phase * 1.3) * wobble;
+
+        var alpha = Math.min(1, t * 3) * (p < 0.85 ? 1 : (1 - p) / 0.15);
+        var sz = pt.size * (0.3 + ease * 0.7);
+
+        if (pt.hue === 0) {
+            ctx.fillStyle = 'rgba(255,80,20,' + (alpha * 0.85).toFixed(3) + ')';
+        } else if (pt.hue === 2) {
+            ctx.fillStyle = 'rgba(0,200,208,' + (alpha * 0.5).toFixed(3) + ')';
+        } else {
+            ctx.fillStyle = 'rgba(0,' + (200 + Math.floor(alpha * 55)) + ',255,' + alpha.toFixed(3) + ')';
+        }
+        ctx.beginPath();
+        ctx.arc(px, py, sz, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    /* 粒子聚合后的光晕 */
+    if (p > 0.4 && p < 0.9) {
+        var gAlpha = Math.min(1, (p - 0.4) / 0.2) * (p < 0.7 ? 1 : (0.9 - p) / 0.2) * 0.06;
+        ctx.fillStyle = 'rgba(0,200,255,' + gAlpha.toFixed(4) + ')';
+        ctx.fillRect(0, 0, W, H);
+    }
+
+    return p >= 1;
+}
+
+/* ═══ 动画循环 ═══ */
+function indAnimLoop(ts) {
+    if (!indCtx) return;
+    indAnimId = requestAnimationFrame(indAnimLoop);
+    var t = ts * 0.001;
+    var W = indCanvas.width / (window.devicePixelRatio || 1);
+    var H = indCanvas.height / (window.devicePixelRatio || 1);
+
+    indCtx.save();
+    indCtx.setTransform(1, 0, 0, 1, 0, 0);
+    indCtx.clearRect(0, 0, indCanvas.width, indCanvas.height);
+    indCtx.restore();
+
+    if (indEntrance.active) {
+        var elapsed = ts - indEntrance.startTime;
+        var entP = Math.min(elapsed / indEntrance.duration, 1);
+
+        /* 入场后半段开始渐现真实内容 */
+        if (entP > 0.55) {
+            var realAlpha = (entP - 0.55) / 0.45;
+            indCtx.globalAlpha = realAlpha;
+            drawGridFloor(indCtx, W, H);
+            drawMapBorder(indCtx, W, H, t);
+            drawAllBars(indCtx, W, H, curYear, t);
+            indCtx.globalAlpha = 1;
+        }
+
+        /* 粒子叠加在上层 */
+        var done = drawEntranceParticles(indCtx, W, H, elapsed);
+        if (done) indEntrance.active = false;
+    } else {
+        drawGridFloor(indCtx, W, H);
+        drawMapBorder(indCtx, W, H, t);
+        drawAllBars(indCtx, W, H, curYear, t);
+    }
+}
+
+/* ═══ 初始化 ═══ */
+function initIndustryScene() {
+    var c = document.getElementById('indCanvas');
+    if (!c) return;
+    indCanvas = c;
+    var W = window.innerWidth, H = window.innerHeight;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = W * dpr; c.height = H * dpr;
+    c.style.width = W + 'px'; c.style.height = H + 'px';
+    indCtx = c.getContext('2d');
+    indCtx.scale(dpr, dpr);
+
+    if (!indInited) {
+        fetch('https://geo.datav.aliyun.com/areas_v3/bound/150000_full.json')
+            .then(function(r) { return r.json(); })
+            .then(function(gj) { indGeoRaw = gj; })
+            .catch(function(e) { console.error('[Industry] GeoJSON fail:', e); });
+
+        /* 鼠标拖拽旋转 */
+        c.addEventListener('mousedown', function(e) {
+            if (e.button === 0) { camDrag = true; camPrev = {x: e.clientX, y: e.clientY}; }
+        });
+        c.addEventListener('mousemove', function(e) {
+            if (!camDrag) {
+                /* 悬停检测 */
+                var rect = c.getBoundingClientRect();
+                var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                var hit = false;
+                for (var i = indCityRects.length - 1; i >= 0; i--) {
+                    var r = indCityRects[i];
+                    if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) { hit = true; break; }
+                }
+                c.style.cursor = hit ? 'pointer' : 'grab';
+                return;
+            }
+            cam.rotY += (e.clientX - camPrev.x) * 0.005;
+            cam.tiltX -= (e.clientY - camPrev.y) * 0.004;
+            cam.tiltX = Math.max(-1.3, Math.min(-0.25, cam.tiltX));
+            camPrev = {x: e.clientX, y: e.clientY};
+        });
+        c.addEventListener('mouseup', function() { camDrag = false; });
+        c.addEventListener('mouseleave', function() { camDrag = false; });
+
+        /* 滚轮缩放 */
+        c.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            cam.zoom -= e.deltaY * 0.001;
+            cam.zoom = Math.max(0.4, Math.min(2.5, cam.zoom));
+        }, { passive: false });
+
+        /* 点击 */
+        c.addEventListener('click', function(e) {
+            var rect = c.getBoundingClientRect();
+            var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+            for (var i = indCityRects.length - 1; i >= 0; i--) {
+                var r = indCityRects[i];
+                if (mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h) {
+                    showCityPanel(r.cityIdx); return;
+                }
+            }
+        });
+
+        /* resize */
+        window.addEventListener('resize', function() {
+            if (!indAnimId) return;
+            var nW = window.innerWidth, nH = window.innerHeight;
+            var nd = Math.min(window.devicePixelRatio || 1, 2);
+            indCanvas.width = nW * nd; indCanvas.height = nH * nd;
+            indCanvas.style.width = nW + 'px'; indCanvas.style.height = nH + 'px';
+            indCtx = indCanvas.getContext('2d');
+            indCtx.scale(nd, nd);
+            if (gdpChartInstance) gdpChartInstance.resize();
+            if (gdpIndChartInstance) gdpIndChartInstance.resize();
+        });
+
+        indInited = true;
+    }
+
+    /* 启动入场粒子动画 */
+    var ww = window.innerWidth, hh = window.innerHeight;
+    indEntrance.particles = buildEntranceParticles(ww, hh);
+    indEntrance.active = true;
+    indEntrance.startTime = performance.now();
+
+    startIndustryAnim();
+}
+
+function startIndustryAnim() {
+    if (indAnimId) return;
+    indAnimId = requestAnimationFrame(indAnimLoop);
+}
+function stopIndustryAnim() {
+    if (indAnimId) { cancelAnimationFrame(indAnimId); indAnimId = null; }
+}
+
+/* ═══ 城市详情面板 ═══ */
+var cityPanelEl = document.getElementById('cityPanel');
+document.getElementById('cpClose').addEventListener('click', function() {
+    cityPanelEl.classList.remove('show');
+});
+
+function showCityPanel(idx) {
+    var c = industryCities[idx];
+    var yi = curYear - 2021;
+    document.getElementById('cpTitle').textContent = c.name;
+    document.getElementById('cpSub').textContent = c.desc;
+    cityPanelEl.setAttribute('data-idx', idx);
+
+    var total = c.trad[yi] + c.tech[yi];
+    var techPct = (c.tech[yi] / total * 100).toFixed(1);
+    var tradPct = (c.trad[yi] / total * 100).toFixed(1);
+
+    var tradColor = '#d08050', techColor = '#00c8d0';
+    document.getElementById('cpStats').innerHTML =
+        '<div class="cp-stat"><div class="cp-st-label"><span style="color:' + tradColor + '">■</span> 传统工业</div>' +
+        '<div class="cp-st-val" style="color:' + tradColor + '">' + c.trad[yi] + '<span class="cp-st-unit"> 亿</span></div>' +
+        '<div class="cp-st-chg" style="color:' + tradColor + '">' + tradPct + '% 占比</div></div>' +
+        '<div class="cp-stat"><div class="cp-st-label"><span style="color:' + techColor + '">■</span> 科技产业</div>' +
+        '<div class="cp-st-val" style="color:' + techColor + '">' + c.tech[yi] + '<span class="cp-st-unit"> 亿</span></div>' +
+        '<div class="cp-st-chg" style="color:' + techColor + '">' + techPct + '% 占比</div></div>' +
+        '<div class="cp-stat"><div class="cp-st-label">📊 产业总值</div>' +
+        '<div class="cp-st-val" style="color:#d4a050">' + total + '<span class="cp-st-unit"> 亿</span></div></div>' +
+        '<div class="cp-stat"><div class="cp-st-label">📈 科技增速</div>' +
+        '<div class="cp-st-val" style="color:#00c8d0">' + (yi > 0 ? '+' + ((c.tech[yi] / c.tech[yi-1] - 1) * 100).toFixed(0) + '%' : '基年') + '</div></div>';
+
+    var maxTotal = 0;
+    for (var j = 0; j < 4; j++) { var tt = c.trad[j] + c.tech[j]; if (tt > maxTotal) maxTotal = tt; }
+    var barsHtml = '';
+    for (var k = 0; k < 4; k++) {
+        var yr = 2021 + k;
+        var tw = (c.trad[k] / maxTotal * 100).toFixed(1);
+        var sw = (c.tech[k] / maxTotal * 100).toFixed(1);
+        barsHtml += '<div class="cp-bar-row"><span class="cp-bar-year' + (yr === curYear ? ' active' : '') + '">' + yr + '</span>' +
+            '<div class="cp-bar-track"><div class="cp-bar-trad" style="width:' + tw + '%"></div>' +
+            '<div class="cp-bar-tech" style="width:' + sw + '%"></div></div>' +
+            '<span class="cp-bar-val">' + (c.trad[k] + c.tech[k]) + '</span></div>';
+    }
+    document.getElementById('cpBars').innerHTML = barsHtml;
+    document.getElementById('cpDesc').innerHTML =
+        '📍 <b>' + c.name + '</b> — ' + c.desc + '<br>2021→2024 科技产值：' + c.tech[0] + ' → ' + c.tech[3] + ' 亿（' +
+        ((c.tech[3] / c.tech[0] - 1) * 100).toFixed(0) + '% 增长）';
+    cityPanelEl.classList.add('show');
+}
+
+/* ═══ 年份切换 ═══ */
+function updateIndustryYear(year) {
+    var yi = year - 2021;
+
+    if (cityPanelEl.classList.contains('show')) {
+        showCityPanel(parseInt(cityPanelEl.getAttribute('data-idx') || '0'));
+    }
+
+    var s = indStats;
+    document.getElementById('sInd2').innerHTML = s.ind2[year] + '<span class="stat-unit">亿</span>';
+    document.getElementById('sIndVal').innerHTML = s.indVal[year] + '<span class="stat-unit">亿</span>';
+    document.getElementById('sSciTech').innerHTML = s.sciTech[year].toFixed(1) + '<span class="stat-unit">亿</span>';
+    document.getElementById('sInfoRes').innerHTML = s.infoRes[year].toFixed(1) + '<span class="stat-unit">亿</span>';
+
+    if (year > 2021) {
+        var ind2Chg = ((s.ind2[year] / s.ind2[year-1] - 1) * 100).toFixed(1);
+        var indVChg = ((s.indVal[year] / s.indVal[year-1] - 1) * 100).toFixed(1);
+        var sciChg  = ((s.sciTech[year] / s.sciTech[year-1] - 1) * 100).toFixed(1);
+        var infoChg = ((s.infoRes[year] / s.infoRes[year-1] - 1) * 100).toFixed(1);
+        document.getElementById('sInd2Chg').textContent  = '▲ ' + ind2Chg + '%';
+        document.getElementById('sInd2Chg').className    = 'stat-change up';
+        document.getElementById('sIndChg').textContent   = '▲ ' + indVChg + '%';
+        document.getElementById('sIndChg').className     = 'stat-change up';
+        document.getElementById('sSciChg').textContent   = '▲ ' + sciChg + '%';
+        document.getElementById('sSciChg').className     = 'stat-change up';
+        document.getElementById('sInfoChg').textContent  = '▲ ' + infoChg + '%';
+        document.getElementById('sInfoChg').className    = 'stat-change up';
+    } else {
+        document.getElementById('sInd2Chg').textContent  = '基年';
+        document.getElementById('sIndChg').textContent   = '基年';
+        document.getElementById('sSciChg').textContent   = '基年';
+        document.getElementById('sInfoChg').textContent  = '基年';
+    }
+
+    var ranked = industryCities.map(function(c) {
+        return { name: c.name, trad: c.trad[yi], tech: c.tech[yi], total: c.trad[yi] + c.tech[yi] };
+    }).sort(function(a,b) { return b.total - a.total; }).slice(0, 6);
+    var maxV = ranked[0].total;
+    var html = '';
+    ranked.forEach(function(d) {
+        html += '<div class="ind-compare-row"><div class="ind-compare-city">' + d.name + '</div>' +
+            '<div class="ind-compare-bars"><div class="ind-bar-line"><div class="ind-bar-fill-trad" style="width:' + (d.trad / maxV * 100).toFixed(1) + '%"></div></div>' +
+            '<div class="ind-bar-line"><div class="ind-bar-fill-tech" style="width:' + (d.tech / maxV * 100).toFixed(1) + '%"></div></div></div>' +
+            '<div class="ind-compare-val">' + d.tech + '</div></div>';
+    });
+    document.getElementById('industryBars').innerHTML = html;
+    document.getElementById('yearNote').textContent = indYearTexts[year];
+}
+
+/* ══════════════════════════════════════════
+   Page 3: 民生温度 — FUI 脉冲轨道图
+   ══════════════════════════════════════════ */
+
+/* 收入→SVG X 坐标映射 (归一化到 5%~95%) */
+var lhIncomeMax = 7.0;
+function incomeToX(val) { return (val / lhIncomeMax * 88 + 6).toFixed(1); }
+
+/* Canvas 粒子系统（背景冲击波 + 环境粒子 + 入场聚拢） */
+var lhBgCanvas, lhBgCtx, lhBgAnimId;
+var lhWaves = [];
+var lhAmbient = [];
+var lhEntrance = { active: false, startTime: 0, duration: 2200, particles: [] };
+
+function LhWave(x, y, maxR, count) {
+    this.x = x; this.y = y; this.r = 0; this.maxR = maxR;
+    this.alpha = 0.7; this.particles = [];
+    for (var i = 0; i < count; i++) {
+        var a = Math.random() * Math.PI * 2;
+        var sp = 0.6 + Math.random() * 2.2;
+        this.particles.push({
+            x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+            r: 0.8 + Math.random() * 1.8, life: 50 + Math.random() * 70, max: 50 + Math.random() * 70
+        });
+    }
+}
+
+function spawnWave(x, y, retail) {
+    lhWaves.push(new LhWave(x, y, 50 + retail / 15, Math.floor(retail / 10)));
+}
+
+/* 构建入场粒子 — 目标位置 = 节点/轨道/标签的屏幕坐标 */
+function buildLhEntranceParticles() {
+    var W = window.innerWidth, H = window.innerHeight;
+    var pts = [];
+    var rows = document.querySelectorAll('.lh-orbit-row');
+    rows.forEach(function(row) {
+        var rect = row.getBoundingClientRect();
+        var trackArea = row.querySelector('.lh-track-area');
+        if (!trackArea) return;
+        var tRect = trackArea.getBoundingClientRect();
+
+        /* 节点目标位置 */
+        var urbanNode = row.querySelector('.lh-node.urban');
+        var ruralNode = row.querySelector('.lh-node.rural');
+        if (urbanNode) {
+            var uRect = urbanNode.getBoundingClientRect();
+            for (var i = 0; i < 25; i++) {
+                pts.push({ tx: uRect.left + uRect.width / 2, ty: uRect.top + uRect.height / 2, hue: 1, size: 1 + Math.random() * 2 });
+            }
+        }
+        if (ruralNode) {
+            var rRect = ruralNode.getBoundingClientRect();
+            for (var j = 0; j < 20; j++) {
+                pts.push({ tx: rRect.left + rRect.width / 2, ty: rRect.top + rRect.height / 2, hue: 2, size: 1 + Math.random() * 2 });
+            }
+        }
+
+        /* 轨道线粒子 */
+        for (var k = 0; k < 30; k++) {
+            var px = tRect.left + Math.random() * tRect.width;
+            pts.push({ tx: px, ty: rect.top + rect.height / 2, hue: 0, size: 0.5 + Math.random() * 1.2 });
+        }
+
+        /* 毛玻璃卡片边框粒子 */
+        for (var e = 0; e < 20; e++) {
+            var edge = Math.random();
+            var ex, ey;
+            if (edge < 0.25) { ex = rect.left + Math.random() * rect.width; ey = rect.top; }
+            else if (edge < 0.5) { ex = rect.left + Math.random() * rect.width; ey = rect.bottom; }
+            else if (edge < 0.75) { ex = rect.left; ey = rect.top + Math.random() * rect.height; }
+            else { ex = rect.right; ey = rect.top + Math.random() * rect.height; }
+            pts.push({ tx: ex, ty: ey, hue: 3, size: 0.4 + Math.random() * 0.8 });
+        }
+    });
+
+    /* 为每个粒子生成随机起点 */
+    var entParts = [];
+    for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        var angle = Math.random() * Math.PI * 2;
+        var dist = 200 + Math.random() * 400;
+        entParts.push({
+            sx: p.tx + Math.cos(angle) * dist,
+            sy: p.ty + Math.sin(angle) * dist,
+            tx: p.tx, ty: p.ty,
+            hue: p.hue, size: p.size,
+            delay: Math.random() * 0.2,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+    return entParts;
+}
+
+function lhBgLoop(ts) {
+    if (!lhBgCtx) return;
+    lhBgAnimId = requestAnimationFrame(lhBgLoop);
+    var W = window.innerWidth, H = window.innerHeight;
+    lhBgCtx.clearRect(0, 0, W, H);
+
+    /* 入场粒子聚拢 */
+    if (lhEntrance.active) {
+        var elapsed = ts - lhEntrance.startTime;
+        var ep = Math.min(elapsed / lhEntrance.duration, 1);
+        var easeP = 1 - Math.pow(1 - ep, 4);
+
+        for (var i = 0; i < lhEntrance.particles.length; i++) {
+            var pt = lhEntrance.particles[i];
+            var t = Math.max(0, Math.min(1, (ep - pt.delay) / (0.85 - pt.delay)));
+            var ease = 1 - Math.pow(1 - t, 3);
+            var px = pt.sx + (pt.tx - pt.sx) * ease;
+            var py = pt.sy + (pt.ty - pt.sy) * ease;
+            /* 微微漂浮 */
+            px += Math.sin(elapsed * 0.003 + pt.phase) * (1 - ease) * 8;
+            py += Math.cos(elapsed * 0.004 + pt.phase * 1.3) * (1 - ease) * 6;
+
+            var alpha;
+            if (t < 0.05) alpha = t / 0.05;
+            else if (ep < 0.7) alpha = 0.9;
+            else alpha = Math.max(0, 1 - (ep - 0.7) / 0.3);
+
+            var sz = pt.size * (0.3 + ease * 0.7);
+            if (pt.hue === 1) lhBgCtx.fillStyle = 'rgba(91,164,207,' + (alpha * 0.6).toFixed(3) + ')';
+            else if (pt.hue === 2) lhBgCtx.fillStyle = 'rgba(0,210,168,' + (alpha * 0.6).toFixed(3) + ')';
+            else if (pt.hue === 3) lhBgCtx.fillStyle = 'rgba(160,170,190,' + (alpha * 0.25).toFixed(3) + ')';
+            else lhBgCtx.fillStyle = 'rgba(0,180,90,' + (alpha * 0.4).toFixed(3) + ')';
+            lhBgCtx.beginPath();
+            lhBgCtx.arc(px, py, sz, 0, Math.PI * 2);
+            lhBgCtx.fill();
+        }
+
+        /* 55% 后开始渐现真实内容 */
+        if (ep > 0.55) {
+            var container = document.getElementById('lhContainer');
+            if (!container.classList.contains('visible')) container.classList.add('visible');
+        }
+
+        if (ep >= 1) {
+            lhEntrance.active = false;
+        }
+    }
+
+    /* 环境微粒 */
+    for (var ai = lhAmbient.length - 1; ai >= 0; ai--) {
+        var ap = lhAmbient[ai];
+        ap.x += ap.vx; ap.y += ap.vy; ap.life--;
+        if (ap.life <= 0 || ap.x < -10 || ap.x > W + 10 || ap.y < -10 || ap.y > H + 10) {
+            lhAmbient.splice(ai, 1); continue;
+        }
+        var aa = ap.life / ap.max * 0.2;
+        lhBgCtx.beginPath();
+        lhBgCtx.arc(ap.x, ap.y, ap.r, 0, Math.PI * 2);
+        lhBgCtx.fillStyle = 'rgba(0,150,75,' + aa.toFixed(3) + ')';
+        lhBgCtx.fill();
+    }
+    if (lhAmbient.length < 50) {
+        lhAmbient.push({
+            x: Math.random() * W, y: H + 5,
+            vx: (Math.random() - 0.5) * 0.25, vy: -(0.12 + Math.random() * 0.35),
+            r: 0.5 + Math.random() * 1.5, life: 250 + Math.random() * 350, max: 250 + Math.random() * 350
+        });
+    }
+
+    /* 冲击波渲染 */
+    for (var s = lhWaves.length - 1; s >= 0; s--) {
+        var w = lhWaves[s];
+        w.r += 2; w.alpha *= 0.97;
+        if (w.alpha < 0.005) { lhWaves.splice(s, 1); continue; }
+        lhBgCtx.beginPath();
+        lhBgCtx.arc(w.x, w.y, w.r, 0, Math.PI * 2);
+        lhBgCtx.strokeStyle = 'rgba(150,140,170,' + w.alpha.toFixed(3) + ')';
+        lhBgCtx.lineWidth = 1.5;
+        lhBgCtx.stroke();
+        for (var p = w.particles.length - 1; p >= 0; p--) {
+            var wpt = w.particles[p];
+            wpt.x += wpt.vx; wpt.y += wpt.vy; wpt.life--;
+            wpt.vx *= 0.99; wpt.vy *= 0.99;
+            if (wpt.life <= 0) { w.particles.splice(p, 1); continue; }
+            var wa = wpt.life / wpt.max * 0.55;
+            lhBgCtx.beginPath();
+            lhBgCtx.arc(wpt.x, wpt.y, wpt.r, 0, Math.PI * 2);
+            lhBgCtx.fillStyle = 'rgba(150,140,170,' + wa.toFixed(3) + ')';
+            lhBgCtx.fill();
+        }
+    }
+}
+
+function initLhBgCanvas() {
+    lhBgCanvas = document.getElementById('lh-bg-canvas');
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    lhBgCanvas.width = window.innerWidth * dpr;
+    lhBgCanvas.height = window.innerHeight * dpr;
+    lhBgCanvas.style.width = window.innerWidth + 'px';
+    lhBgCanvas.style.height = window.innerHeight + 'px';
+    lhBgCtx = lhBgCanvas.getContext('2d');
+    lhBgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+/* 数字滚轮动效 */
+function rollNumber(el, from, to, suffix, dur) {
+    var start = null;
+    dur = dur || 800;
+    function step(ts) {
+        if (!start) start = ts;
+        var p = Math.min((ts - start) / dur, 1);
+        var ease = 1 - Math.pow(1 - p, 3);
+        var cur = from + (to - from) * ease;
+        el.textContent = cur.toFixed(2) + suffix;
+        if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function rollInt(el, from, to, suffix, dur) {
+    var start = null;
+    dur = dur || 800;
+    function step(ts) {
+        if (!start) start = ts;
+        var p = Math.min((ts - start) / dur, 1);
+        var ease = 1 - Math.pow(1 - p, 3);
+        var cur = Math.round(from + (to - from) * ease);
+        el.textContent = cur + suffix;
+        if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+/* SVG DOM → 纯 DOM 构建（修复球体压扁）*/
+var lhPrevVals = {};
+function buildLhSVG() {
+    var container = document.getElementById('lhContainer');
+    var cities = Object.keys(nmgData);
+    var html = '';
+    cities.forEach(function(city) {
+        html += '<div class="lh-orbit-row" data-city="' + city + '">' +
+            '<div class="lh-city-label">' + city + '</div>' +
+            '<div class="lh-track-area">' +
+            '<div class="lh-track-dash"></div>' +
+            '<div class="lh-ribbon-line" style="left:30%;width:40%"></div>' +
+            '<div class="lh-node rural" style="left:30%"></div>' +
+            '<div class="lh-node urban" style="left:70%"></div>' +
+            '<div class="lh-label-float rural-label" style="left:30%">2.12万</div>' +
+            '<div class="lh-label-float urban-label" style="left:70%">5.61万</div>' +
+            '<div class="lh-ratio-tag">2.65:1</div>' +
+            '<div class="lh-consume"><span class="lh-arrow">⬆</span><span class="lh-consume-val">1050</span>亿</div>' +
+            '</div></div>';
+    });
+    html += '<div class="lh-legend-bar"><i style="background:#00d4aa"></i>城镇人均可支配收入 <i style="background:#d4a050;margin-left:12px"></i>农村人均可支配收入 <i style="background:linear-gradient(90deg,#d4a050,#00d4aa);width:20px;height:3px;border-radius:3px;margin-left:12px"></i>差距连线</div>';
+    container.innerHTML = html;
+
+    /* 悬停 HUD */
+    var hoverCard = document.getElementById('lhHover');
+    container.querySelectorAll('.lh-orbit-row').forEach(function(row) {
+        row.addEventListener('mouseenter', function() { hoverCard.style.display = 'block'; });
+        row.addEventListener('mouseleave', function() { hoverCard.style.display = 'none'; });
+        row.addEventListener('mousemove', function(e) {
+            var city = row.getAttribute('data-city');
+            var d = nmgData[city][curYear];
+            var ratio = (d.u / d.r).toFixed(2);
+            hoverCard.innerHTML = '<b style="font-size:13px">' + city + ' ' + curYear + '</b><br>' +
+                '<span style="color:#00d4aa">●</span> 城镇：' + d.u.toFixed(2) + '万 &nbsp;&nbsp;' +
+                '<span style="color:#d4a050">●</span> 农村：' + d.r.toFixed(2) + '万<br>' +
+                '城乡比 <span style="color:rgba(0,210,168,.8);font-family:Roboto Mono,monospace">' + ratio + '</span>:1<br>' +
+                '消费支出 <span style="color:rgba(0,158,148,.8);font-family:Roboto Mono,monospace">' + d.c + '</span> 亿';
+            hoverCard.style.left = Math.min(e.clientX + 16, window.innerWidth - 280) + 'px';
+            hoverCard.style.top = (e.clientY - 20) + 'px';
+        });
+    });
+}
+
+/* 更新年份 — DOM 坐标 + 数字滚轮 + 冲击波 */
+var lhPrevYear = 0;
+function updateLhYear(year) {
+    var cities = Object.keys(nmgData);
+    var rows = document.querySelectorAll('.lh-orbit-row');
+    var doWave = (year === 2024 && lhPrevYear !== 2024 && lhBgCanvas);
+
+    rows.forEach(function(row, idx) {
+        var city = cities[idx];
+        var d = nmgData[city][year];
+        var ux = parseFloat(incomeToX(d.u));
+        var rx = parseFloat(incomeToX(d.r));
+        var ratio = (d.u / d.r).toFixed(2);
+
+        /* DOM 节点位移 */
+        row.querySelector('.lh-node.rural').style.left = rx + '%';
+        row.querySelector('.lh-node.urban').style.left = ux + '%';
+        row.querySelector('.lh-ribbon-line').style.left = rx + '%';
+        row.querySelector('.lh-ribbon-line').style.width = (ux - rx) + '%';
+
+        /* 悬浮标签位置 */
+        var ruralLabel = row.querySelector('.rural-label');
+        var urbanLabel = row.querySelector('.urban-label');
+        ruralLabel.style.left = rx + '%';
+        urbanLabel.style.left = ux + '%';
+
+        /* 数字滚轮动效 */
+        var prevCity = lhPrevVals[city] || nmgData[city][2021];
+        rollNumber(ruralLabel, prevCity.r, d.r, '万', 800);
+        rollNumber(urbanLabel, prevCity.u, d.u, '万', 800);
+        var ratioTag = row.querySelector('.lh-ratio-tag');
+        var oldRatio = prevCity.u / prevCity.r;
+        (function(tag, fr, to) {
+            var st = null;
+            function stepR(ts) {
+                if (!st) st = ts;
+                var p = Math.min((ts - st) / 800, 1);
+                var ease = 1 - Math.pow(1 - p, 3);
+                tag.textContent = (fr + (to - fr) * ease).toFixed(2) + ':1';
+                if (p < 1) requestAnimationFrame(stepR);
+            }
+            requestAnimationFrame(stepR);
+        })(ratioTag, oldRatio, d.u / d.r);
+
+        /* 消费标签 */
+        var consumeVal = row.querySelector('.lh-consume-val');
+        rollInt(consumeVal, prevCity.c, d.c, '', 800);
+
+        lhPrevVals[city] = d;
+
+        /* 冲击波 */
+        if (doWave) {
+            var rect = row.getBoundingClientRect();
+            var trackRect = row.querySelector('.lh-track-area').getBoundingClientRect();
+            var waveX = trackRect.left + trackRect.width * ux / 100;
+            var waveY = rect.top + rect.height / 2;
+            setTimeout(function() { spawnWave(waveX, waveY, d.c); }, 700);
+        }
+    });
+    lhPrevYear = year;
+
+    /* HUD 总体统计 (数字滚轮) */
+    var totU = 0, totR = 0, totC = 0, n = 0;
+    cities.forEach(function(c) { var d = nmgData[c][year]; totU += d.u; totR += d.r; totC += d.c; n++; });
+    var avgU = totU / n, avgR = totR / n, avgRatio = avgU / avgR;
+
+    document.getElementById('sUrban').innerHTML = avgU.toFixed(2) + '<span class="stat-unit">万</span>';
+    document.getElementById('sRural').innerHTML = avgR.toFixed(2) + '<span class="stat-unit">万</span>';
+    document.getElementById('sRatio').innerHTML = avgRatio.toFixed(2) + '<span class="stat-unit">:1</span>';
+    document.getElementById('sRetail').innerHTML = totC + '<span class="stat-unit">亿</span>';
+
+    if (year > 2021) {
+        var pU = 0, pR = 0, pC = 0;
+        cities.forEach(function(c) { var pd = nmgData[c][year - 1]; pU += pd.u; pR += pd.r; pC += pd.c; });
+        var uChg = ((totU / pU - 1) * 100).toFixed(1);
+        var rChg = ((totR / pR - 1) * 100).toFixed(1);
+        var cChg = ((totC / pC - 1) * 100).toFixed(1);
+        document.getElementById('sUrbanChg').textContent = '▲ ' + uChg + '%';
+        document.getElementById('sUrbanChg').className = 'stat-change up';
+        document.getElementById('sRuralChg').textContent = '▲ ' + rChg + '%';
+        document.getElementById('sRuralChg').className = 'stat-change up';
+        document.getElementById('sRetailChg').textContent = '▲ ' + cChg + '%';
+        document.getElementById('sRetailChg').className = 'stat-change up';
+        var prevAvgRatio = (pU / n) / (pR / n);
+        document.getElementById('sRatioChg').textContent = avgRatio < prevAvgRatio ? '▼ 收窄' : '— 持平';
+        document.getElementById('sRatioChg').className = 'stat-change ' + (avgRatio < prevAvgRatio ? 'down' : '');
+    } else {
+        document.getElementById('sUrbanChg').textContent = '基年';
+        document.getElementById('sRuralChg').textContent = '基年';
+        document.getElementById('sRatioChg').textContent = '▼ 收窄趋势';
+        document.getElementById('sRetailChg').textContent = '基年';
+    }
+}
+
+/* ══ GDP 增长柱状图数据 & 渲染 ══ */
+
+var gdpChartInstance = null;
+var gdpIndChartInstance = null;
+function updateGdpChart(year) {
+    var container = document.getElementById('gdpVBars');
+    if (!container) return;
+    container.style.height = '140px';
+
+    if (!gdpChartInstance) gdpChartInstance = echarts.init(container, null, { renderer: 'canvas' });
+
+    var years = gdpYears.map(String);
+    var totals = gdpYears.map(function(y) { return gdpData.total[y]; });
+    var indices = gdpYears.map(function(y) { return gdpData.index[y]; });
+
+    var activeIdx = gdpYears.indexOf(year);
+    var barColors = years.map(function(_, i) {
+        return i === activeIdx
+            ? new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#00d4aa' }, { offset: 1, color: 'rgba(0,212,170,0.15)' }])
+            : new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(0,180,160,0.5)' }, { offset: 1, color: 'rgba(0,180,160,0.06)' }]);
+    });
+
+    gdpChartInstance.setOption({
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(3,12,24,0.92)',
+            borderColor: 'rgba(0,200,180,0.15)',
+            textStyle: { color: 'rgba(200,228,240,0.88)', fontSize: 10 },
+            formatter: function(p) {
+                var bar = p[0], line = p[1];
+                return bar.name + '<br/>' +
+                    '<span style="color:#00d4aa">●</span> GDP：' + bar.value.toFixed(1) + ' 亿<br/>' +
+                    '<span style="color:#d4a050">●</span> 增速指数：' + line.value.toFixed(1);
+            }
+        },
+        grid: { left: 44, right: 36, top: 16, bottom: 24 },
+        xAxis: {
+            type: 'category', data: years,
+            axisLine: { lineStyle: { color: 'rgba(0,200,180,0.1)' } },
+            axisLabel: { color: 'rgba(100,165,195,0.6)', fontSize: 10, fontFamily: 'Orbitron' },
+            axisTick: { show: false }
+        },
+        yAxis: [
+            {
+                type: 'value', name: '亿元',
+                nameTextStyle: { color: 'rgba(100,165,195,0.3)', fontSize: 8 },
+                splitLine: { lineStyle: { color: 'rgba(0,200,180,0.04)', type: 'dashed' } },
+                axisLabel: { color: 'rgba(100,165,195,0.4)', fontSize: 9, fontFamily: 'Orbitron', formatter: function(v) { return (v/10000).toFixed(1) + '万'; } },
+                axisLine: { show: false }
+            },
+            {
+                type: 'value', name: '指数',
+                nameTextStyle: { color: 'rgba(212,160,80,0.3)', fontSize: 8 },
+                min: 100, max: 112,
+                splitLine: { show: false },
+                axisLabel: { color: 'rgba(212,160,80,0.4)', fontSize: 9, fontFamily: 'Orbitron' },
+                axisLine: { show: false }
+            }
+        ],
+        series: [
+            {
+                type: 'bar', barWidth: 20,
+                data: totals.map(function(v, i) { return { value: v, itemStyle: { color: barColors[i], borderRadius: [3, 3, 0, 0] } }; }),
+                animationDuration: 800, animationEasing: 'cubicOut'
+            },
+            {
+                type: 'line', yAxisIndex: 1,
+                smooth: 0.4, symbol: 'diamond', symbolSize: 8,
+                lineStyle: { color: '#d4a050', width: 2, shadowColor: 'rgba(212,160,80,0.3)', shadowBlur: 6 },
+                itemStyle: { color: '#d4a050', borderColor: 'rgba(212,160,80,0.3)', borderWidth: 2 },
+                data: indices,
+                animationDuration: 1000, animationEasing: 'cubicOut'
+            }
+        ]
+    });
+
+    /* 行业分解 → ECharts 饼图 */
+    var indWrap = document.getElementById('gdpIndGroup');
+    indWrap.style.height = '100px';
+    if (!gdpIndChartInstance) gdpIndChartInstance = echarts.init(indWrap, null, { renderer: 'canvas' });
+
+    var totalY = gdpData.total[year];
+    var pieData = [];
+    var pieColors = ['#5098d8', '#d4a050', '#a878e0'];
+    for (var i = 0; i < 3; i++) {
+        var iv = gdpData[indKeys[i]][year];
+        pieData.push({ name: indNames[i], value: iv, itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 1, 1, [
+                { offset: 0, color: pieColors[i] },
+                { offset: 1, color: pieColors[i] + '60' }
+            ])
+        }});
+    }
+
+    gdpIndChartInstance.setOption({
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(3,12,24,0.92)',
+            borderColor: 'rgba(0,200,180,0.15)',
+            textStyle: { color: 'rgba(200,228,240,0.88)', fontSize: 10 },
+            formatter: function(p) { return p.name + '：' + (p.value/10000).toFixed(2) + '万亿 (' + p.percent.toFixed(1) + '%)'; }
+        },
+        series: [{
+            type: 'pie', radius: ['30%', '65%'], center: ['50%', '50%'],
+            roseType: 'radius',
+            label: {
+                color: 'rgba(200,228,240,0.7)', fontSize: 9,
+                formatter: '{b}\n{d}%'
+            },
+            labelLine: { lineStyle: { color: 'rgba(0,200,180,0.2)' }, length: 8, length2: 12 },
+            itemStyle: { borderColor: 'rgba(2,8,16,0.8)', borderWidth: 2 },
+            data: pieData,
+            animationType: 'scale', animationDuration: 800
+        }]
+    });
+
+    /* 指标行 */
+    var mWrap = document.getElementById('gdpMetrics');
+    var pc = gdpData.perCap[year];
+    var gi = gdpData.index[year];
+    mWrap.innerHTML = '<div class="gdp-metric"><div class="gdp-metric-label">人均GDP</div>' +
+        '<div class="gdp-metric-val neutral">' + (pc/10000).toFixed(1) + '<span style="font-size:9px;opacity:.5">万</span></div></div>' +
+        '<div class="gdp-metric"><div class="gdp-metric-label">增速指数</div>' +
+        '<div class="gdp-metric-val up">' + gi.toFixed(1) + '</div></div>' +
+        '<div class="gdp-metric"><div class="gdp-metric-label">年增量</div>' +
+        '<div class="gdp-metric-val up">+' + (year > 2021 ? (gdpData.total[year] - gdpData.total[year-1]).toFixed(0) : '—') + '<span style="font-size:9px;opacity:.5">亿</span></div></div>';
+}
+
+var lhInited = false;
+function initLivelihoodScene() {
+    if (!lhInited) {
+        buildLhSVG();
+        lhInited = true;
+    }
+    initLhBgCanvas();
+    lhWaves = []; lhAmbient = []; lhPrevYear = 0; lhPrevVals = {};
+
+    /* 先隐藏DOM内容，启动入场粒子 */
+    var container = document.getElementById('lhContainer');
+    container.classList.remove('visible');
+
+    updateLhYear(curYear);
+    updateGdpChart(curYear);
+
+    /* 延迟一帧后采集目标位置并启动入场 */
+    requestAnimationFrame(function() {
+        lhEntrance.particles = buildLhEntranceParticles();
+        lhEntrance.active = true;
+        lhEntrance.startTime = performance.now();
+        lhBgLoop(performance.now());
+    });
+}
+
+function stopLivelihoodAnim() {
+    if (lhBgAnimId) { cancelAnimationFrame(lhBgAnimId); lhBgAnimId = null; }
+    lhBgCtx = null;
+}
+
+/* ══════════════════════════════════════════
+   Page 4: 人才着陆点 — ECharts 多维气泡图
+   ══════════════════════════════════════════ */
+var talentChartInstance = null;
+var t4CurYear = 2021;
+var t4ActiveMajor = '';
+var t4Entrance = { active: false, startTime: 0, duration: 2200, particles: [], animId: null };
+
+function buildT4EntranceParticles(year) {
+    var W = window.innerWidth, H = window.innerHeight;
+    var data = nmgTalentData[year];
+    if (!data) return [];
+    /* 计算图表区域像素坐标 — 与 ECharts grid 一致 */
+    var gL = 360, gR = 40, gT = 80, gB = 90;
+    var chartL = gL, chartR = W - gR, chartT = gT, chartB = H - gB;
+    var chartW = chartR - chartL, chartH = chartB - chartT;
+    var xMin = 4, xMax = 18, yMin = -15, yMax = 30;
+    var pts = [];
+    var catHue = { energy: 0, tech: 1, service: 2, public: 3 };
+    data.forEach(function(d) {
+        var cx = chartL + ((d.salary - xMin) / (xMax - xMin)) * chartW;
+        var cy = chartT + ((yMax - d.growth * 100) / (yMax - yMin)) * chartH;
+        var sz = (Math.log(d.capacity + 1) / Math.log(60)) * 50 + 8;
+        if (sz < 10) sz = 10;
+        if (sz > 55) sz = 55;
+        var nP = Math.max(8, Math.round(sz * 1.2));
+        for (var i = 0; i < nP; i++) {
+            var a = Math.random() * Math.PI * 2;
+            var r = Math.random() * sz * 0.5;
+            pts.push({
+                tx: cx + Math.cos(a) * r,
+                ty: cy + Math.sin(a) * r,
+                hue: catHue[d.category],
+                size: 0.8 + Math.random() * 1.8
+            });
+        }
+    });
+    /* 网格线粒子 */
+    for (var g = 0; g < 80; g++) {
+        var isH = Math.random() > 0.5;
+        pts.push({
+            tx: isH ? chartL + Math.random() * chartW : chartL + Math.random() * chartW,
+            ty: isH ? chartT + Math.random() * chartH : chartT + Math.random() * chartH,
+            hue: 4, size: 0.3 + Math.random() * 0.6
+        });
+    }
+    /* 生成随机起点 */
+    var entParts = [];
+    for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        var angle = Math.random() * Math.PI * 2;
+        var dist = 150 + Math.random() * 450;
+        entParts.push({
+            sx: p.tx + Math.cos(angle) * dist,
+            sy: p.ty + Math.sin(angle) * dist,
+            tx: p.tx, ty: p.ty,
+            hue: p.hue, size: p.size,
+            delay: Math.random() * 0.2,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+    return entParts;
+}
+
+function t4EntranceLoop(ts) {
+    if (!t4Entrance.active) return;
+    t4Entrance.animId = requestAnimationFrame(t4EntranceLoop);
+    var canvas = document.getElementById('t4EntranceCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var W = window.innerWidth, H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+    ctx.clearRect(0, 0, W, H);
+
+    var elapsed = ts - t4Entrance.startTime;
+    var ep = Math.min(elapsed / t4Entrance.duration, 1);
+
+    var colors = [
+        [230,170,80],   /* energy - amber */
+        [60,170,230],   /* tech - blue */
+        [220,195,90],   /* service - gold */
+        [100,210,150],  /* public - green */
+        [120,140,170]   /* grid */
+    ];
+
+    for (var i = 0; i < t4Entrance.particles.length; i++) {
+        var pt = t4Entrance.particles[i];
+        var t = Math.max(0, Math.min(1, (ep - pt.delay) / (0.85 - pt.delay)));
+        var ease = 1 - Math.pow(1 - t, 3);
+        var px = pt.sx + (pt.tx - pt.sx) * ease;
+        var py = pt.sy + (pt.ty - pt.sy) * ease;
+        px += Math.sin(elapsed * 0.003 + pt.phase) * (1 - ease) * 8;
+        py += Math.cos(elapsed * 0.004 + pt.phase * 1.3) * (1 - ease) * 6;
+
+        var alpha;
+        if (t < 0.05) alpha = t / 0.05;
+        else if (ep < 0.65) alpha = 0.85;
+        else alpha = Math.max(0, 1 - (ep - 0.65) / 0.35);
+
+        var sz = pt.size * (0.3 + ease * 0.7);
+        var c = colors[pt.hue] || colors[4];
+        var a = pt.hue === 4 ? alpha * 0.25 : alpha * 0.55;
+        ctx.fillStyle = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a.toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(px, py, sz, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    /* 50% 后显示图表和UI */
+    if (ep > 0.5) {
+        var chart = document.getElementById('talentChart');
+        if (!chart.classList.contains('t4-visible')) chart.classList.add('t4-visible');
+        var viz = document.getElementById('talentViz');
+        if (!viz.classList.contains('t4-ui-visible')) viz.classList.add('t4-ui-visible');
+    }
+
+    if (ep >= 1) {
+        t4Entrance.active = false;
+        if (t4Entrance.animId) { cancelAnimationFrame(t4Entrance.animId); t4Entrance.animId = null; }
+        canvas.width = 0; canvas.height = 0;
+    }
+}
+
+function makeBubbleSeries(year, highlightNames) {
+    var data = nmgTalentData[year];
+    if (!data) return [];
+    var dimAll = highlightNames && highlightNames.length > 0;
+    var seriesMap = { energy: [], tech: [], service: [], public: [] };
+
+    data.forEach(function(d) {
+        var isHl = !dimAll || highlightNames.indexOf(d.name) >= 0;
+        var clr = isHl ? catColorMap[d.category] : catColorDim[d.category];
+        /* 使用对数映射让大小差异更明显 */
+        var sz = (Math.log(d.capacity + 1) / Math.log(60)) * 50 + 8;
+        if (sz < 10) sz = 10;
+        if (sz > 55) sz = 55;
+        seriesMap[d.category].push({
+            name: d.name,
+            value: [d.salary, d.growth * 100, d.capacity, d.category],
+            symbolSize: sz,
+            itemStyle: {
+                color: clr,
+                borderColor: isHl ? clr.replace(/[\d.]+\)$/, '0.4)') : 'transparent',
+                borderWidth: isHl ? 1 : 0,
+                opacity: isHl ? 1 : 0.3
+            },
+            label: {
+                show: isHl && d.capacity > 1,
+                position: sz > 28 ? 'inside' : 'top',
+                formatter: '{b}',
+                fontSize: 11,
+                color: 'rgba(255,255,255,.85)'
+            }
+        });
+    });
+
+    var catNames = { energy: '能源/制造', tech: '科技/研发', service: '商贸/服务', public: '公共/事业' };
+    var result = [];
+    ['energy', 'tech', 'service', 'public'].forEach(function(cat) {
+        result.push({
+            name: catNames[cat],
+            type: 'scatter',
+            data: seriesMap[cat],
+            animationDuration: 1200,
+            animationEasing: 'cubicInOut',
+            animationDurationUpdate: 1200,
+            animationEasingUpdate: 'cubicInOut'
+        });
+    });
+    return result;
+}
+
+function makeLinesSeries(year, highlightNames) {
+    if (!highlightNames || highlightNames.length === 0) return [];
+    var data = nmgTalentData[year];
+    if (!data) return [];
+    var centerX = 11, centerY = 4;
+    var lineData = [];
+    data.forEach(function(d) {
+        if (highlightNames.indexOf(d.name) >= 0) {
+            lineData.push({ coords: [[centerX, centerY], [d.salary, d.growth * 100]] });
+        }
+    });
+    return [{
+        type: 'lines',
+        coordinateSystem: 'cartesian2d',
+        polyline: false,
+        data: lineData,
+        lineStyle: { color: 'rgba(140,190,220,.2)', width: 1, curveness: 0.15 },
+        effect: {
+            show: true, period: 4, trailLength: 0.3,
+            symbolSize: 3, symbol: 'circle', color: 'rgba(140,190,220,.5)'
+        },
+        animationDuration: 800,
+        zlevel: 0
+    }];
+}
+
+function buildTalentOption(year, highlightNames) {
+    var series = makeBubbleSeries(year, highlightNames).concat(makeLinesSeries(year, highlightNames));
+    return {
+        backgroundColor: 'transparent',
+        grid: { left: 360, right: 40, top: 80, bottom: 90, containLabel: false },
+        xAxis: {
+            name: '年薪（万元/年）',
+            nameTextStyle: { color: 'rgba(160,175,195,.55)', fontSize: 12 },
+            type: 'value', min: 4, max: 18,
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,.04)', type: 'dashed' } },
+            axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } },
+            axisLabel: { color: 'rgba(160,175,195,.55)', fontSize: 12, formatter: function(v) { return v + '万'; } }
+        },
+        yAxis: {
+            name: '就业需求增速（%）',
+            nameTextStyle: { color: 'rgba(160,175,195,.55)', fontSize: 12 },
+            type: 'value', min: -15, max: 30,
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,.04)', type: 'dashed' } },
+            axisLine: { lineStyle: { color: 'rgba(255,255,255,.08)' } },
+            axisLabel: { color: 'rgba(160,175,195,.55)', fontSize: 12, formatter: function(v) { return v + '%'; } }
+        },
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(16,20,30,.9)',
+            borderColor: 'rgba(255,255,255,.06)',
+            textStyle: { color: 'rgba(210,220,235,.9)', fontSize: 11 },
+            formatter: function(p) {
+                if (p.seriesType === 'lines') return '';
+                var v = p.value;
+                return '<b>' + p.name + '</b><br/>年薪：' + v[0].toFixed(1) + ' 万<br/>增速：' + v[1].toFixed(1) + '%<br/>就业容量：' + v[2].toFixed(1) + ' 万人';
+            }
+        },
+        labelLayout: {
+            hideOverlap: true
+        },
+        series: series
+    };
+}
+
+function initTalentScene() {
+    var dom = document.getElementById('talentChart');
+    if (!talentChartInstance) {
+        talentChartInstance = echarts.init(dom, null, { renderer: 'canvas' });
+    }
+    t4CurYear = curYear;
+    t4ActiveMajor = '';
+    document.getElementById('t4Input').value = '';
+    document.querySelectorAll('.t4-tag').forEach(function(t) { t.classList.remove('active'); });
+    document.getElementById('t4Card').style.display = 'none';
+    document.getElementById('t4Clear').style.display = 'none';
+    document.getElementById('t4Slider').value = curYear;
+    document.getElementById('t4YearVal').textContent = curYear;
+
+    /* 先隐藏内容，准备入场动画 */
+    dom.classList.remove('t4-visible');
+    document.getElementById('talentViz').classList.remove('t4-ui-visible');
+
+    talentChartInstance.setOption(buildTalentOption(curYear, null), true);
+    updateTalentHud(curYear);
+    window.addEventListener('resize', onTalentResize);
+
+    /* 延迟一帧后启动入场粒子 */
+    requestAnimationFrame(function() {
+        t4Entrance.particles = buildT4EntranceParticles(curYear);
+        t4Entrance.active = true;
+        t4Entrance.startTime = performance.now();
+        t4EntranceLoop(performance.now());
+    });
+}
+
+function onTalentResize() { if (talentChartInstance) talentChartInstance.resize(); }
+function disposeTalentChart() {
+    window.removeEventListener('resize', onTalentResize);
+    if (t4Entrance.animId) { cancelAnimationFrame(t4Entrance.animId); t4Entrance.animId = null; }
+    t4Entrance.active = false;
+}
+
+function updateTalentYear(year) {
+    t4CurYear = year;
+    document.getElementById('t4Slider').value = year;
+    document.getElementById('t4YearVal').textContent = year;
+    var hlNames = getHighlightNames(t4ActiveMajor);
+    if (talentChartInstance) talentChartInstance.setOption(buildTalentOption(year, hlNames), true);
+    updateTalentHud(year);
+    if (t4ActiveMajor) applyTalentSearch(t4ActiveMajor);
+}
+
+function updateTalentHud(year) {
+    var s = talentStats[year];
+    if (!s) return;
+    document.getElementById('sTalentTotal').innerHTML = s.total + '<span class="stat-unit">万</span>';
+    document.getElementById('sTalentWage').innerHTML = s.wage + '<span class="stat-unit">亿</span>';
+    document.getElementById('sTalentTech').innerHTML = s.sci + '<span class="stat-unit">万</span>';
+    document.getElementById('sTalentIT').innerHTML = s.it + '<span class="stat-unit">万</span>';
+    if (year > 2021) {
+        var ps = talentStats[year - 1];
+        var tc = ((s.total / ps.total - 1) * 100).toFixed(1);
+        var wc = ((s.wage / ps.wage - 1) * 100).toFixed(1);
+        document.getElementById('sTalentChg').textContent = (tc >= 0 ? '▲ ' : '▼ ') + Math.abs(tc) + '%';
+        document.getElementById('sTalentChg').className = 'stat-change ' + (tc >= 0 ? 'up' : 'down');
+        document.getElementById('sTalentWageChg').textContent = '▲ ' + wc + '%';
+        document.getElementById('sTalentWageChg').className = 'stat-change up';
+        document.getElementById('sTalentTechChg').textContent = s.sci > ps.sci ? '▲ 增长' : (s.sci < ps.sci ? '▼ 回落' : '— 持平');
+        document.getElementById('sTalentTechChg').className = 'stat-change ' + (s.sci >= ps.sci ? 'up' : 'down');
+        document.getElementById('sTalentITChg').textContent = s.it > ps.it ? '▲ 增长' : (s.it < ps.it ? '▼ 收缩' : '— 持平');
+        document.getElementById('sTalentITChg').className = 'stat-change ' + (s.it >= ps.it ? 'up' : 'down');
+    } else {
+        document.getElementById('sTalentChg').textContent = '基年';
+        document.getElementById('sTalentWageChg').textContent = '基年';
+        document.getElementById('sTalentTechChg').textContent = '基年';
+        document.getElementById('sTalentITChg').textContent = '基年';
+    }
+}
+
+function getHighlightNames(query) {
+    if (!query) return null;
+    var q = query.trim();
+    if (!q) return null;
+    var matched = [];
+    var keys = Object.keys(majorMap);
+    for (var i = 0; i < keys.length; i++) {
+        if (q.indexOf(keys[i]) >= 0 || keys[i].indexOf(q) >= 0) {
+            var arr = majorMap[keys[i]];
+            for (var j = 0; j < arr.length; j++) {
+                if (matched.indexOf(arr[j]) < 0) matched.push(arr[j]);
+            }
+        }
+    }
+    return matched.length > 0 ? matched : null;
+}
+
+function applyTalentSearch(query) {
+    t4ActiveMajor = query;
+    var hlNames = getHighlightNames(query);
+    if (talentChartInstance) talentChartInstance.setOption(buildTalentOption(t4CurYear, hlNames), true);
+    var card = document.getElementById('t4Card');
+    var clearBtn = document.getElementById('t4Clear');
+    if (hlNames && hlNames.length > 0) {
+        var data = nmgTalentData[t4CurYear];
+        var html = '<b>「' + query + '」匹配行业</b>';
+        data.forEach(function(d) {
+            if (hlNames.indexOf(d.name) >= 0) {
+                html += '<br><span style="color:' + catColorMap[d.category] + '">●</span> ' +
+                    d.name + '　' + d.salary.toFixed(1) + '万/年　' + (d.growth * 100).toFixed(0) + '%增速';
+            }
+        });
+        card.innerHTML = html;
+        card.style.display = 'block';
+        clearBtn.style.display = 'block';
+    } else {
+        card.style.display = 'none';
+        clearBtn.style.display = 'none';
+    }
+}
+
+document.getElementById('t4Input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        applyTalentSearch(this.value);
+        document.querySelectorAll('.t4-tag').forEach(function(t) { t.classList.remove('active'); });
+    }
+});
+
+document.querySelectorAll('.t4-tag').forEach(function(tag) {
+    tag.addEventListener('click', function() {
+        var q = this.getAttribute('data-q');
+        document.getElementById('t4Input').value = q;
+        document.querySelectorAll('.t4-tag').forEach(function(t) { t.classList.remove('active'); });
+        this.classList.add('active');
+        applyTalentSearch(q);
+    });
+});
+
+document.getElementById('t4Clear').addEventListener('click', function() {
+    t4ActiveMajor = '';
+    document.getElementById('t4Input').value = '';
+    document.querySelectorAll('.t4-tag').forEach(function(t) { t.classList.remove('active'); });
+    this.style.display = 'none';
+    document.getElementById('t4Card').style.display = 'none';
+    if (talentChartInstance) talentChartInstance.setOption(buildTalentOption(t4CurYear, null), true);
+});
+
+document.getElementById('t4Slider').addEventListener('input', function() {
+    var y = parseInt(this.value);
+    t4CurYear = y;
+    document.getElementById('t4YearVal').textContent = y;
+    curYear = y;
+    document.getElementById('yearSlider').value = y;
+    document.getElementById('yearValue').textContent = y;
+    var pct = ((y - 2021) / 3 * 100).toFixed(1);
+    document.querySelector('.rng-track').style.setProperty('--slider-pct', pct + '%');
+    var ticks = document.querySelectorAll('.ticks span');
+    for (var ti = 0; ti < ticks.length; ti++) {
+        ticks[ti].className = (2021 + ti <= y) ? 'tick-active' : '';
+    }
+    document.getElementById('yearNote').textContent = talentYearTexts[y] || '';
+    var hlNames = getHighlightNames(t4ActiveMajor);
+    if (talentChartInstance) talentChartInstance.setOption(buildTalentOption(y, hlNames), true);
+    updateTalentHud(y);
+    if (t4ActiveMajor) applyTalentSearch(t4ActiveMajor);
+});
