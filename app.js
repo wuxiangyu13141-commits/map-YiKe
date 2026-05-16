@@ -19,6 +19,7 @@ const ancientLayer = document.getElementById("ancientLayer");
 const pointLayer = document.getElementById("pointLayer");
 const branchLabelLayer = document.getElementById("branchLabelLayer");
 const regionOverlayLayer = document.getElementById("regionOverlayLayer");
+const mapBaseImage = document.getElementById("mapBaseImage");
 const slider = document.getElementById("timelineSlider");
 const playButton = document.getElementById("playButton");
 const timelinePlayButton = document.getElementById("timelinePlayButton");
@@ -26,12 +27,32 @@ const jumpModernButton = document.getElementById("jumpModernButton");
 const currentTimeLabel = document.getElementById("currentTimeLabel");
 const currentModeLabel = document.getElementById("currentModeLabel");
 const tickLabel = document.getElementById("tickLabel");
+const branchDrawerTrigger = document.getElementById("branchDrawerTrigger");
+const branchDrawer = document.getElementById("branchDrawer");
+const branchDrawerList = document.getElementById("branchDrawerList");
 const branchLegend = document.getElementById("branchLegend");
 const sampleList = document.getElementById("sampleList");
 const currentTimelineMarker = document.getElementById("currentTimelineMarker");
 const currentTimelineMarkerText = document.getElementById("currentTimelineMarkerText");
 const originMarker = document.getElementById("originMarker");
 const originMarkerText = document.getElementById("originMarkerText");
+const MAP_COORD_BOUNDS = Object.freeze({
+  lonMin: -15,
+  lonMax: 146,
+  latMin: 0,
+  latMax: 75,
+  width: 1000,
+  height: 500,
+});
+const MAP_SOURCE_BOUNDS = Object.freeze({
+  lonMin: -180,
+  lonMax: 180,
+  latMin: -90,
+  latMax: 90,
+  width: 1000,
+  height: 500,
+});
+const MAP_MIN_VIEWBOX_RATIO = 0.32;
 
 // 创建样本点悬停弹窗
 const tooltip = document.createElement("div");
@@ -60,12 +81,151 @@ document.addEventListener("click", (e) => {
   }
 });
 
+const BRANCH_REGISTRY_URL = "data/branch-registry.json";
+
+function normalizeBranchRegistryPayload(payload) {
+  const branches = Array.isArray(payload) ? payload : payload?.branches;
+  if (!Array.isArray(branches)) {
+    return [];
+  }
+  return branches
+    .filter((entry) => entry && entry.displayName)
+    .sort((left, right) => (left.sortOrder ?? Number.MAX_SAFE_INTEGER) - (right.sortOrder ?? Number.MAX_SAFE_INTEGER));
+}
+
+function resolveBranchPagePath(pagePath) {
+  if (!pagePath) {
+    return "";
+  }
+  return `${pagePath}`.replace(/^\.\//, "").replace(/^\//, "");
+}
+
+function isCurrentBranchEntry(entry) {
+  if (!entry) {
+    return false;
+  }
+  if (entry.rootBranchId && entry.rootBranchId === data.meta.branch) {
+    return true;
+  }
+  const currentPath = decodeURIComponent(window.location.pathname || "").replace(/\\/g, "/").toLowerCase();
+  const expectedPath = resolveBranchPagePath(entry.pagePath).toLowerCase();
+  return !!(expectedPath && currentPath.endsWith(expectedPath));
+}
+
+function renderBranchDrawerItems(entries) {
+  if (!branchDrawerList) {
+    return;
+  }
+
+  if (!entries.length) {
+    branchDrawerList.innerHTML = `
+      <div class="branch-drawer-item is-placeholder is-disabled" aria-disabled="true">
+        <span class="branch-drawer-name">暂无支系</span>
+        <span class="branch-drawer-meta">branch-registry.json 为空</span>
+      </div>
+    `;
+    return;
+  }
+
+  branchDrawerList.innerHTML = entries.map((entry) => {
+    const isCurrent = isCurrentBranchEntry(entry);
+    const isDisabled = entry.status && entry.status !== "published";
+    const tagName = isDisabled ? "div" : "a";
+    const hrefAttr = !isDisabled && entry.pagePath ? ` href="${entry.pagePath}"` : "";
+    const className = [
+      "branch-drawer-item",
+      isCurrent ? "is-current" : "",
+      isDisabled ? "is-disabled" : "",
+    ].filter(Boolean).join(" ");
+    const meta = isCurrent
+      ? "当前示例支系"
+      : entry.summary || (isDisabled ? "待发布" : entry.rootBranchId || "已发布支系");
+    return `
+      <${tagName} class="${className}"${hrefAttr}${isDisabled ? ' aria-disabled="true"' : ""}>
+        <span class="branch-drawer-name">${entry.displayName}</span>
+        <span class="branch-drawer-meta">${meta}</span>
+      </${tagName}>
+    `;
+  }).join("");
+}
+
+async function hydrateBranchDrawerItems() {
+  const fallbackEntries = normalizeBranchRegistryPayload(window.BRANCH_REGISTRY_FALLBACK);
+  if (fallbackEntries.length) {
+    renderBranchDrawerItems(fallbackEntries);
+  }
+
+  try {
+    const response = await fetch(BRANCH_REGISTRY_URL, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Registry request failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    const remoteEntries = normalizeBranchRegistryPayload(payload);
+    if (remoteEntries.length) {
+      renderBranchDrawerItems(remoteEntries);
+    }
+  } catch (_error) {
+    if (!fallbackEntries.length) {
+      renderBranchDrawerItems([]);
+    }
+  }
+}
+
+function setBranchDrawerOpen(isOpen) {
+  if (!branchDrawerTrigger || !branchDrawer) {
+    return;
+  }
+  branchDrawerTrigger.setAttribute("aria-expanded", String(isOpen));
+  if (isOpen) {
+    branchDrawer.hidden = false;
+    void branchDrawer.offsetWidth;
+    branchDrawer.classList.add("is-open");
+    return;
+  }
+  branchDrawer.classList.remove("is-open");
+  window.setTimeout(() => {
+    if (!branchDrawer.classList.contains("is-open")) {
+      branchDrawer.hidden = true;
+    }
+  }, 220);
+}
+
+branchDrawerTrigger?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const isOpen = branchDrawerTrigger.getAttribute("aria-expanded") === "true";
+  setBranchDrawerOpen(!isOpen);
+});
+
+document.addEventListener("click", (event) => {
+  if (!branchDrawerTrigger || !branchDrawer) {
+    return;
+  }
+  if (branchDrawer.hidden) {
+    return;
+  }
+  if (branchDrawer.contains(event.target) || branchDrawerTrigger.contains(event.target)) {
+    return;
+  }
+  setBranchDrawerOpen(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setBranchDrawerOpen(false);
+  }
+});
+
+hydrateBranchDrawerItems();
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 const regionMap = new Map(data.regions.map((region) => [region.id, region]));
 const branchMap = new Map(data.branches.map((branch) => [branch.id, branch]));
 const sampleMap = new Map(data.samples.map((sample) => [sample.id, sample]));
 const compressedCommonPrefix = getCompressedCommonPrefix();
 const PLAYBACK_TOTAL_MS = 20000;
+const PRE_ORIGIN_PLAYBACK_FACTOR = 0.5;
+const POST_ORIGIN_PLAYBACK_FACTOR = 0.9;
 const TREE_ANNOTATION_BRANCH_IDS = ["MF247416", "BY182928", "Y20085", "Y20087", "ZQ32"];
 const TREE_SUPPRESSED_BRANCH_LABELS = new Set();
 const TREE_ALWAYS_LABEL_BRANCH_IDS = new Set(["Y4541", "Y12782", "MF317986", "MV154461", "Y20798"]);
@@ -83,6 +243,204 @@ const treeBranchAnnotations = new Map(
 );
 
 const originBranch = branchMap.get(data.meta.branch);
+const MAP_BRANCH_OVERRIDES = new Map([
+  ["Y4569", {
+    mapAge: 1260,
+    tribeLabel: "蒙兀",
+    tribeCoord: [53.27, 123.00],
+    idCoord: [51.77, 123.00],
+    ellipse: { lon: 123.00, lat: 52.55, rx: 8.8, ry: 5.4, rotation: 6 },
+    mapFill: "#ff6d3f",
+    mapOpacity: 0.82,
+    directLabel: true,
+  }],
+  ["Y4541", {
+    mapAge: 1100,
+    tribeLabel: "尼伦蒙古",
+    tribeCoord: [49.42, 120.93],
+    idCoord: [47.92, 120.93],
+    ellipse: { lon: 120.40, lat: 48.60, rx: 15.5, ry: 8.5, rotation: -8 },
+    mapFill: "#ff9d95",
+    mapOpacity: 0.62,
+    directLabel: true,
+  }],
+  ["Y12782", {
+    mapAge: 800,
+    tribeLabel: "蒙古各部",
+    tribeCoord: [47.69, 102.75],
+    idCoord: [46.19, 102.75],
+    ellipse: { lon: 110.80, lat: 45.10, rx: 26.8, ry: 11.8, rotation: -6 },
+    mapFill: "#f8efba",
+    mapOpacity: 0.52,
+    directLabel: true,
+  }],
+  ["ZQ32", {
+    mapAge: 600,
+    tribeLabel: "克烈",
+    tribeCoord: [51.44, 75.06],
+    idCoord: [49.94, 75.06],
+    ellipse: { lon: 75.06, lat: 50.70, rx: 10.8, ry: 4.4, rotation: -2 },
+    mapFill: "#b8ea63",
+    mapOpacity: 0.86,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  }],
+  ["Y20085", {
+    mapAge: 600,
+    tribeLabel: "Sary-uysyn",
+    tribeCoord: [42.70, 75.02],
+    idCoord: [44.20, 75.02],
+    ellipse: { lon: 76.30, lat: 42.15, rx: 10.0, ry: 4.9, rotation: -10 },
+    mapFill: "#72c1ee",
+    mapOpacity: 0.86,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  }],
+  ["Y20087", {
+    mapAge: 700,
+    tribeLabel: "杜拉特",
+    tribeCoord: [41.59, 75.80],
+    idCoord: [40.09, 75.80],
+    ellipse: { lon: 76.30, lat: 42.15, rx: 10.0, ry: 4.9, rotation: -10 },
+    mapFill: "#72c1ee",
+    mapOpacity: 0.86,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  }],
+  ["BY182928", {
+    mapAge: 500,
+    tribeLabel: "忙忽惕",
+    tribeCoord: [42.41, 59.13],
+    idCoord: [40.91, 59.13],
+    ellipse: { lon: 59.13, lat: 41.60, rx: 4.8, ry: 3.0, rotation: -6 },
+    mapFill: "#e9d85d",
+    mapOpacity: 0.86,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  }],
+  ["SK1076", {
+    mapAge: 600,
+    tribeLabel: "哈扎拉",
+    tribeCoord: [34.80, 67.95],
+    idCoord: [33.30, 67.95],
+    ellipse: { lon: 67.95, lat: 34.05, rx: 5.2, ry: 3.1, rotation: 8 },
+    mapFill: "#d66f7b",
+    mapOpacity: 0.88,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  }],
+  ["MF317986", { hideOnMap: true }],
+  ["MV154461", { hideOnMap: true }],
+  ["Y20798", { hideOnMap: true }],
+]);
+const MAP_EXTRA_BRANCHES = [
+  {
+    id: "F18202",
+    label: "F18202",
+    parentId: "Y4569",
+    age: 900,
+    mapAge: 900,
+    center: [47.86, 111.10],
+    color: "#f3b3de",
+    tribeLabel: "蒙古",
+    tribeCoord: [49.36, 111.10],
+    idCoord: [47.86, 111.10],
+    ellipse: { lon: 111.10, lat: 48.60, rx: 12.8, ry: 6.4, rotation: -4 },
+    mapFill: "#f3b3de",
+    mapOpacity: 0.58,
+    directLabel: true,
+  },
+  {
+    id: "FT230267",
+    label: "FT230267",
+    parentId: "Y12782",
+    age: 500,
+    mapAge: 500,
+    center: [43.50, 85.52],
+    color: "#6dd146",
+    tribeLabel: "克烈-阿巴克",
+    tribeCoord: [45.00, 85.52],
+    idCoord: [43.50, 85.52],
+    ellipse: { lon: 85.52, lat: 44.20, rx: 4.6, ry: 2.7, rotation: 8 },
+    mapFill: "#6dd146",
+    mapOpacity: 0.84,
+    mapStroke: "rgba(43, 57, 115, 0.95)",
+    directLabel: true,
+  },
+];
+const MAP_BACKGROUND_ZONES = [
+  {
+    id: "steppe-belt",
+    mapAge: 1260,
+    mapFill: "rgba(224, 189, 160, 0.40)",
+    polygon: [[40, 55], [56, 55], [71, 56], [86, 56], [101, 56], [116, 55], [130, 54], [140, 52], [141, 46], [140, 40], [136, 35], [126, 33], [113, 33], [99, 34], [86, 35], [72, 36], [58, 37], [47, 35], [41, 31]],
+  },
+  {
+    id: "y12782-belt",
+    mapAge: 800,
+    mapFill: "rgba(248, 239, 186, 0.42)",
+    polygon: [[88, 53], [96, 56], [107, 57], [119, 56], [130, 52], [136, 48], [137, 42], [133, 38], [123, 35], [111, 34], [99, 35], [91, 38], [88, 44]],
+  },
+  {
+    id: "f18202-belt",
+    mapAge: 900,
+    mapFill: "rgba(247, 193, 231, 0.34)",
+    polygon: [[104, 51], [111, 53], [119, 53], [126, 51], [128, 47], [126, 43], [119, 41], [111, 41], [105, 43], [103, 47]],
+  },
+];
+const MAP_EXTRA_BRANCH_MAP = new Map(MAP_EXTRA_BRANCHES.map((branch) => [branch.id, branch]));
+const TREE_EXTRA_BRANCHES = Object.freeze([]);
+const TREE_BRANCHES = Object.freeze([...data.branches, ...TREE_EXTRA_BRANCHES]);
+function getMapStageAgeById(branchId) {
+  const overrideConfig = MAP_BRANCH_OVERRIDES.get(branchId);
+  if (Number.isFinite(overrideConfig?.mapAge)) {
+    return overrideConfig.mapAge;
+  }
+  const extraBranch = MAP_EXTRA_BRANCH_MAP.get(branchId);
+  if (Number.isFinite(extraBranch?.mapAge)) {
+    return extraBranch.mapAge;
+  }
+  const branch = branchMap.get(branchId);
+  return Number.isFinite(branch?.age) ? branch.age : null;
+}
+
+function getSpreadImageActivationAge(entry) {
+  if (Number.isFinite(entry.activationAge)) {
+    return entry.activationAge;
+  }
+  return entry.branchId ? getMapStageAgeById(entry.branchId) : null;
+}
+
+const MAP_SPREAD_IMAGE_CONFIG = Object.freeze([
+  { src: "图/1蒙兀Y4541.png", branchId: "Y4569", stackOrder: 10 },
+  { src: "图/2尼伦蒙古Y4541.png", branchId: "Y4541", stackOrder: 9 },
+  { src: "图/3萌古F18202.png", branchId: "F18202", activationAge: 1000, stackOrder: 8 },
+  { src: "图/4蒙古F18202.png", branchId: "F18202", stackOrder: 7 },
+  { src: "图/5蒙古各部Y12782.png", branchId: "Y12782", stackOrder: 6 },
+  { src: "图/9哈扎拉SK1076.png", branchId: "SK1076", stackOrder: 5 },
+  { src: "图/7克烈 ZQ32.png", branchId: "ZQ32", stackOrder: 4 },
+  { src: "图/10Sary-uysyn Y20085杜拉特Y20087.png", branchId: "Y20085", stackOrder: 3 },
+  { src: "图/8克列-阿巴克FT230267.png", branchId: "FT230267", stackOrder: 2 },
+  { src: "图/11忙忽惕BY182928.png", branchId: "BY182928", stackOrder: 1 },
+  { src: "图/再一步.png", branchId: "MF317986", activationAge: 700, stackOrder: 0 },
+]);
+const MAP_STAGE_AGES = [...new Set([
+  ...[...MAP_BRANCH_OVERRIDES.values()].map((config) => config.mapAge).filter((age) => Number.isFinite(age)),
+  ...MAP_EXTRA_BRANCHES.map((branch) => branch.mapAge).filter((age) => Number.isFinite(age)),
+  ...MAP_SPREAD_IMAGE_CONFIG.map((entry) => getSpreadImageActivationAge(entry)).filter((age) => Number.isFinite(age)),
+])];
+const MAP_VISIBLE_BRANCH_IDS = new Set([
+  "Y4569",
+  "Y4541",
+  "Y12782",
+  "F18202",
+  "ZQ32",
+  "FT230267",
+  "Y20085",
+  "Y20087",
+  "BY182928",
+  "SK1076",
+]);
 
 // 非线性时间轴：宗族出现前稀疏（压缩空白期），出现后密集（展开关键期）
 const timelineSteps = [];
@@ -102,6 +460,7 @@ if (originBranch && !timelineSteps.includes(originAge)) {
 for (let bp = originAge - DENSE_STEP; bp >= 0; bp -= DENSE_STEP) {
   timelineSteps.push(bp);
 }
+MAP_STAGE_AGES.forEach((age) => timelineSteps.push(age));
 if (!timelineSteps.includes(0)) timelineSteps.push(0);
 
 const timeline = [...new Set(timelineSteps)].sort((a, b) => b - a);
@@ -110,7 +469,19 @@ function getTimelinePositionPercent(index) {
   if (timeline.length <= 1) {
     return 0;
   }
-  return (index / (timeline.length - 1)) * 100;
+  const clampedIndex = Math.max(0, Math.min(timeline.length - 1, index));
+  return (clampedIndex / (timeline.length - 1)) * 100;
+}
+
+function getBpAtTimelinePosition(position) {
+  const clampedPosition = Math.max(0, Math.min(timeline.length - 1, position));
+  const leftIndex = Math.floor(clampedPosition);
+  const rightIndex = Math.min(timeline.length - 1, Math.ceil(clampedPosition));
+  if (leftIndex === rightIndex) {
+    return timeline[leftIndex];
+  }
+  const blend = clampedPosition - leftIndex;
+  return timeline[leftIndex] + (timeline[rightIndex] - timeline[leftIndex]) * blend;
 }
 
 function updateAxisLabels() {
@@ -149,7 +520,7 @@ function updateOriginTimelineMarker() {
 function updateCurrentTimelineMarker(bp) {
   if (!currentTimelineMarker) return;
 
-  const pos = getTimelinePositionPercent(currentIndex);
+  const pos = getTimelinePositionPercent(currentTimelinePosition);
   currentTimelineMarker.style.setProperty('--pos', `${pos.toFixed(1)}%`);
   currentTimelineMarker.dataset.edge = pos < 12 ? 'start' : pos > 88 ? 'end' : 'center';
   if (currentTimelineMarkerText) {
@@ -163,10 +534,13 @@ updateOriginTimelineMarker();
 
 
 let currentIndex = 0;
+let currentTimelinePosition = 0;
 let animationFrameId = null;
+let playbackLastTimestamp = null;
 const originStartIndex = getOriginStartIndex();
 
 slider.max = String(timeline.length - 1);
+slider.step = 'any';
 
 // 追踪已显示过的分支，用于累积动画
 const displayedBranches = new Map(); // branchId -> bp (该分支首次激活时的bp值)
@@ -186,7 +560,8 @@ renderFocusFrame();
 setTimeout(render, 0);
 
 slider.addEventListener("input", () => {
-  currentIndex = Number(slider.value);
+  currentTimelinePosition = Number(slider.value);
+  currentIndex = Math.max(0, Math.min(timeline.length - 1, Math.round(currentTimelinePosition)));
   stopPlayback();
   render();
 });
@@ -201,8 +576,9 @@ timelinePlayButton.addEventListener("click", () => {
 
 jumpModernButton.addEventListener("click", () => {
   stopPlayback();
+  currentTimelinePosition = timeline.length - 1;
   currentIndex = timeline.length - 1;
-  slider.value = String(currentIndex);
+  slider.value = String(currentTimelinePosition);
   render();
 });
 
@@ -218,38 +594,53 @@ function updatePlayIcons(isPlaying) {
 }
 
 function stopPlayback() {
-  if (animationFrameId) {
-    clearTimeout(animationFrameId);
+  if (animationFrameId != null) {
+    window.clearInterval(animationFrameId);
     animationFrameId = null;
   }
+  playbackLastTimestamp = null;
   updatePlayIcons(false);
 }
 
-// 动态获取当前帧的播放间隔：宗族出现前快速，出现后慢速（比基础速度多 15 秒总时长）
+// 宗族出现前加速跳过空白期，出现后保持略快于当前基准的节奏。
 function getTickInterval() {
-  return Math.max(160, Math.round(PLAYBACK_TOTAL_MS / Math.max(timeline.length - 1, 1)));
+  const baseInterval = Math.round(PLAYBACK_TOTAL_MS / Math.max(timeline.length - 1, 1));
+  const speedFactor = currentTimelinePosition < getOriginStartIndex()
+    ? PRE_ORIGIN_PLAYBACK_FACTOR
+    : POST_ORIGIN_PLAYBACK_FACTOR;
+  return Math.max(120, Math.round(baseInterval * speedFactor));
 }
 
 function togglePlayback() {
-  if (animationFrameId) {
+  if (animationFrameId != null) {
     // 正在播放 → 暂停在当前位置
     stopPlayback();
     return;
   }
   // 未播放 → 从头开始播放；已到末尾则重置到0
-  if (currentIndex >= timeline.length - 1) currentIndex = 0;
+  if (currentTimelinePosition >= timeline.length - 1) {
+    currentTimelinePosition = 0;
+    currentIndex = 0;
+    slider.value = '0';
+    render();
+  }
   updatePlayIcons(true);
-  const tick = () => {
-    if (currentIndex >= timeline.length - 1) {
+  playbackLastTimestamp = performance.now();
+  animationFrameId = window.setInterval(() => {
+    const now = performance.now();
+    const elapsed = now - playbackLastTimestamp;
+    playbackLastTimestamp = now;
+    const stepDuration = getTickInterval();
+    const nextPosition = currentTimelinePosition + (elapsed / Math.max(stepDuration, 1));
+    currentTimelinePosition = Math.min(timeline.length - 1, nextPosition);
+    currentIndex = Math.max(0, Math.min(timeline.length - 1, Math.round(currentTimelinePosition)));
+    slider.value = String(currentTimelinePosition);
+    render();
+    if (currentTimelinePosition >= timeline.length - 1) {
       stopPlayback();
       return;
     }
-    currentIndex += 1;
-    slider.value = String(currentIndex);
-    render();
-    animationFrameId = window.setTimeout(tick, getTickInterval());
-  };
-  animationFrameId = window.setTimeout(tick, getTickInterval());
+  }, 16);
 }
 
 function getOriginStartIndex() {
@@ -265,14 +656,33 @@ function getOriginStartIndex() {
 }
 
 function applyFocusViewBox() {
-  const { lonMin, lonMax, latMin, latMax } = data.meta.focus;
-  const x = lonToX(lonMin);
-  const y = latToY(latMax);
-  const width = lonToX(lonMax) - x;
-  const height = latToY(latMin) - y;
-  svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+  const { width, height } = MAP_COORD_BOUNDS;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  syncMapBackgroundToBounds();
   // 记录初始 viewBox 供缩放还原使用
-  svg._initVB = { x, y, width, height };
+  svg._initVB = { x: 0, y: 0, width, height };
+}
+
+function syncMapBackgroundToBounds() {
+  if (!mapBaseImage) {
+    return;
+  }
+
+  const sourceLonSpan = MAP_SOURCE_BOUNDS.lonMax - MAP_SOURCE_BOUNDS.lonMin;
+  const sourceLatSpan = MAP_SOURCE_BOUNDS.latMax - MAP_SOURCE_BOUNDS.latMin;
+  const focusX0 = ((MAP_COORD_BOUNDS.lonMin - MAP_SOURCE_BOUNDS.lonMin) / sourceLonSpan) * MAP_SOURCE_BOUNDS.width;
+  const focusX1 = ((MAP_COORD_BOUNDS.lonMax - MAP_SOURCE_BOUNDS.lonMin) / sourceLonSpan) * MAP_SOURCE_BOUNDS.width;
+  const focusY0 = ((MAP_SOURCE_BOUNDS.latMax - MAP_COORD_BOUNDS.latMax) / sourceLatSpan) * MAP_SOURCE_BOUNDS.height;
+  const focusY1 = ((MAP_SOURCE_BOUNDS.latMax - MAP_COORD_BOUNDS.latMin) / sourceLatSpan) * MAP_SOURCE_BOUNDS.height;
+  const focusWidth = focusX1 - focusX0;
+  const focusHeight = focusY1 - focusY0;
+  const scaleX = MAP_COORD_BOUNDS.width / focusWidth;
+  const scaleY = MAP_COORD_BOUNDS.height / focusHeight;
+
+  mapBaseImage.setAttribute("x", (-focusX0 * scaleX).toFixed(2));
+  mapBaseImage.setAttribute("y", (-focusY0 * scaleY).toFixed(2));
+  mapBaseImage.setAttribute("width", (MAP_SOURCE_BOUNDS.width * scaleX).toFixed(2));
+  mapBaseImage.setAttribute("height", (MAP_SOURCE_BOUNDS.height * scaleY).toFixed(2));
 }
 
 // ── 地图缩放控件 ─────────────────────────────────────────────────────────
@@ -282,7 +692,24 @@ function getViewBox() {
 }
 
 function setViewBox(x, y, width, height) {
-  svg.setAttribute("viewBox", `${x} ${y} ${width} ${height}`);
+  const bounds = svg._initVB || { x: 0, y: 0, width: MAP_COORD_BOUNDS.width, height: MAP_COORD_BOUNDS.height };
+  const clampedWidth = Math.max(bounds.width * MAP_MIN_VIEWBOX_RATIO, Math.min(width, bounds.width));
+  const clampedHeight = Math.max(bounds.height * MAP_MIN_VIEWBOX_RATIO, Math.min(height, bounds.height));
+  const maxX = bounds.x + bounds.width - clampedWidth;
+  const maxY = bounds.y + bounds.height - clampedHeight;
+  const clampedX = clampedWidth >= bounds.width
+    ? bounds.x
+    : Math.max(bounds.x, Math.min(x, maxX));
+  const clampedY = clampedHeight >= bounds.height
+    ? bounds.y
+    : Math.max(bounds.y, Math.min(y, maxY));
+
+  svg.setAttribute("viewBox", `${clampedX} ${clampedY} ${clampedWidth} ${clampedHeight}`);
+}
+
+function panViewBox(deltaX, deltaY = 0) {
+  const vb = getViewBox();
+  setViewBox(vb.x + deltaX, vb.y + deltaY, vb.width, vb.height);
 }
 
 document.getElementById("mapZoomIn").addEventListener("click", () => {
@@ -314,21 +741,139 @@ document.getElementById("mapZoomReset").addEventListener("click", () => {
   }
 });
 
+document.getElementById("mapPanLeft").addEventListener("click", () => {
+  const vb = getViewBox();
+  panViewBox(-vb.width * 0.16, 0);
+});
+
+document.getElementById("mapPanRight").addEventListener("click", () => {
+  const vb = getViewBox();
+  panViewBox(vb.width * 0.16, 0);
+});
+
 function renderFocusFrame() {
   // 不渲染边框和标签
   focusLayer.textContent = "";
 }
 
 function lonToX(lon) {
-  return ((lon + 180) / 360) * 1000;
+  const { lonMin, lonMax, width } = MAP_COORD_BOUNDS;
+  return ((lon - lonMin) / (lonMax - lonMin)) * width;
 }
 
 function latToY(lat) {
-  return ((90 - lat) / 180) * 500;
+  const { latMin, latMax, height } = MAP_COORD_BOUNDS;
+  return ((latMax - lat) / (latMax - latMin)) * height;
 }
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function createEllipsePolygon(lon, lat, rx, ry, rotation = 0, numPoints = 40) {
+  const theta = (rotation * Math.PI) / 180;
+  const cosTheta = Math.cos(theta);
+  const sinTheta = Math.sin(theta);
+  return Array.from({ length: numPoints }, (_, index) => {
+    const angle = (2 * Math.PI * index) / numPoints;
+    const ex = Math.cos(angle) * rx;
+    const ey = Math.sin(angle) * ry;
+    const px = lon + ex * cosTheta - ey * sinTheta;
+    const py = lat + ex * sinTheta + ey * cosTheta;
+    return [px, py];
+  });
+}
+
+function getMapBranchEntity(id) {
+  const base = MAP_EXTRA_BRANCH_MAP.get(id) || branchMap.get(id);
+  if (!base) {
+    return null;
+  }
+  const override = MAP_BRANCH_OVERRIDES.get(id);
+  return override ? { ...base, ...override } : base;
+}
+
+function getMapActivationAge(branch) {
+  return branch.mapAge ?? branch.age;
+}
+
+function getBranchMapCenter(branch) {
+  if (branch.idCoord) {
+    return [branch.idCoord[0], branch.idCoord[1]];
+  }
+  if (branch.ellipse) {
+    return [branch.ellipse.lat, branch.ellipse.lon];
+  }
+  return branch.center;
+}
+
+function getBranchMapPolygon(branch) {
+  if (branch.polygon) {
+    return branch.polygon;
+  }
+  if (branch.ellipse) {
+    return createEllipsePolygon(
+      branch.ellipse.lon,
+      branch.ellipse.lat,
+      branch.ellipse.rx,
+      branch.ellipse.ry,
+      branch.ellipse.rotation || 0
+    );
+  }
+  const region = branch.regionId ? regionMap.get(branch.regionId) : null;
+  return region ? region.polygon : buildFallbackPolygon(branch);
+}
+
+function getVisibleMapBranches(bp) {
+  return [...MAP_VISIBLE_BRANCH_IDS]
+    .map((id) => getMapBranchEntity(id))
+    .filter((branch) => branch && !branch.hideOnMap && bp <= getMapActivationAge(branch))
+    .sort((a, b) => getMapActivationAge(b) - getMapActivationAge(a));
+}
+
+function renderMapBackgroundZones(bp) {
+  regionOverlayLayer.textContent = "";
+  MAP_BACKGROUND_ZONES.forEach((zone) => {
+    if (bp > zone.mapAge) {
+      return;
+    }
+    const pathData = zone.polygon
+      .map(([lon, lat], index) => {
+        const command = index === 0 ? "M" : "L";
+        return `${command} ${lonToX(lon).toFixed(2)} ${latToY(lat).toFixed(2)}`;
+      })
+      .join(" ") + " Z";
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", zone.mapFill);
+    path.setAttribute("opacity", "1");
+    path.setAttribute("stroke", "none");
+    regionOverlayLayer.appendChild(path);
+  });
+}
+
+function renderSpreadImages(bp) {
+  ancientLayer.textContent = "";
+  MAP_SPREAD_IMAGE_CONFIG
+    .map((entry, index) => ({
+      ...entry,
+      index,
+      activationAge: getSpreadImageActivationAge(entry),
+      stackOrder: entry.stackOrder ?? index,
+    }))
+    .filter((entry) => Number.isFinite(entry.activationAge) && bp <= entry.activationAge)
+    .sort((a, b) => a.stackOrder - b.stackOrder || a.activationAge - b.activationAge || a.index - b.index)
+    .forEach((entry) => {
+    const image = document.createElementNS(SVG_NS, "image");
+    image.setAttribute("href", entry.src);
+    image.setAttribute("x", "0");
+    image.setAttribute("y", "0");
+    image.setAttribute("width", String(MAP_COORD_BOUNDS.width));
+    image.setAttribute("height", String(MAP_COORD_BOUNDS.height));
+    image.setAttribute("preserveAspectRatio", "none");
+    image.setAttribute("pointer-events", "none");
+    ancientLayer.appendChild(image);
+  });
 }
 
 // ── 时间轴颜色渐变配置 ──────────────────────────────────────────────────────
@@ -396,7 +941,7 @@ function interpolateGradient(stops, t) {
 // 获取分支在指定时间bp时的渐变色（hex格式）
 // 动画效果：深红→中红→浅红→白（前2/3时间），白→支系色（后1/3时间）
 function getBranchColorAtTime(branch, bp) {
-  const age = Math.max(branch.age, 1);
+  const age = Math.max(getMapActivationAge(branch), 1);
   // t=0：分支初现（bp=age），t=1：现代（bp=0）
   const t = clamp(1 - bp / age, 0, 1);
   
@@ -466,12 +1011,11 @@ function ensureBranchGradient(branch, r, g, b) {
     defs.appendChild(grad);
   }
 
-  const [lat, lon] = getOriginCenter(branch);
+  const [lat, lon] = getBranchMapCenter(branch);
   const cx = lonToX(lon);
   const cy = latToY(lat);
 
-  const region = branch.regionId ? regionMap.get(branch.regionId) : null;
-  const points = region ? region.polygon : buildFallbackPolygon(branch);
+  const points = getBranchMapPolygon(branch);
   let maxDist = 40;
   if (points) {
     for (const [plon, plat] of points) {
@@ -505,7 +1049,8 @@ function ensureBranchGradient(branch, r, g, b) {
 }
 
 function formatTime(bp) {
-  return bp === 0 ? "现代" : `距今 ${bp} 年`;
+  const roundedBp = Math.max(0, Math.round(bp));
+  return roundedBp === 0 ? "现代" : `距今 ${roundedBp} 年`;
 }
 
 function getTreeBranchAnnotation(branchId) {
@@ -661,9 +1206,7 @@ function formatBranchLegendLabel(branch, sharedPrefixLength = 0) {
 }
 
 function buildAnimatedPolygon(branch, progress) {
-  const origin = getOriginCenter(branch);
-  const region = branch.regionId ? regionMap.get(branch.regionId) : null;
-  const rawPoints = region ? region.polygon : buildFallbackPolygon(branch);
+  const rawPoints = getBranchMapPolygon(branch);
 
   if (!rawPoints || rawPoints.length < 3) {
     return "";
@@ -674,10 +1217,8 @@ function buildAnimatedPolygon(branch, progress) {
 
   return targetPoints
     .map(([lon, lat], index) => {
-      const currentLon = origin[1] + (lon - origin[1]) * progress;
-      const currentLat = origin[0] + (lat - origin[0]) * progress;
       const command = index === 0 ? "M" : "L";
-      return `${command} ${lonToX(currentLon).toFixed(2)} ${latToY(currentLat).toFixed(2)}`;
+      return `${command} ${lonToX(lon).toFixed(2)} ${latToY(lat).toFixed(2)}`;
     })
     .join(" ") + " Z";
 }
@@ -706,16 +1247,15 @@ function getSharedPrefixLength(tokenLists) {
 }
 
 function getOriginCenter(branch) {
-  // 使用Y4569根节点的区域多边形质心作为起始点（比样本平均坐标更准确）
-  const root = branchMap.get(data.meta.branch);
-  const rootRegion = root && root.regionId ? regionMap.get(root.regionId) : null;
-  if (rootRegion && rootRegion.polygon && rootRegion.polygon.length > 0) {
-    const pts = rootRegion.polygon;
-    const lon = pts.reduce((s, p) => s + p[0], 0) / pts.length;
-    const lat = pts.reduce((s, p) => s + p[1], 0) / pts.length;
-    return [lat, lon]; // 格式 [lat, lon]
+  const originId = branch.mapOriginId || branch.parentId;
+  if (originId) {
+    const originBranchEntity = getMapBranchEntity(originId);
+    if (originBranchEntity) {
+      return getBranchMapCenter(originBranchEntity);
+    }
   }
-  return root ? root.center : branch.center;
+  const root = getMapBranchEntity(data.meta.branch);
+  return root ? getBranchMapCenter(root) : getBranchMapCenter(branch);
 }
 
 // ── 持久红色流水线管理 ────────────────────────────────────────────────────
@@ -730,21 +1270,21 @@ function updateFlowLines(visibleBranches, bp) {
     }
   }
 
-  const originPt = getOriginCenter(branchMap.get(data.meta.branch) || visibleBranches[0]);
-  if (!originPt) return;
-  const ox = lonToX(originPt[1]);
-  const oy = latToY(originPt[0]);
   const defs = svg.querySelector('defs');
 
   visibleBranches.forEach(branch => {
-    const age = Math.max(branch.age, 1);
+    const age = Math.max(getMapActivationAge(branch), 1);
     const progress = clamp((age - bp) / age, 0.08, 1);
     const tProgress = clamp((age - bp) / age, 0, 1);
     const fadeIn = clamp(tProgress / 0.20, 0, 1);
 
+    const originPt = getOriginCenter(branch);
+    if (!originPt) return;
+    const ox = lonToX(originPt[1]);
+    const oy = latToY(originPt[0]);
+
     // 计算目的地中心
-    const region = branch.regionId ? regionMap.get(branch.regionId) : null;
-    const rawPts = region ? region.polygon : buildFallbackPolygon(branch);
+    const rawPts = getBranchMapPolygon(branch);
     const destLon = rawPts.reduce((s, p) => s + p[0], 0) / rawPts.length;
     const destLat = rawPts.reduce((s, p) => s + p[1], 0) / rawPts.length;
     const finalX = lonToX(destLon);
@@ -868,310 +1408,23 @@ function getVisibleModernSamples(bp) {
 }
 
 function render() {
-  const bp = timeline[currentIndex];
+  const bp = getBpAtTimelinePosition(currentTimelinePosition);
   const modernSamples = getVisibleModernSamples(bp);
+  const visibleBranchesForRender = getVisibleMapBranches(bp);
 
   currentTimeLabel.textContent = formatTime(bp);
   currentModeLabel.textContent = bp === 0 ? "现代样本点状态" : "古代扩散阶段";
-  tickLabel.textContent = `第 ${currentIndex + 1} 格 / ${timeline.length} 格`;
+  tickLabel.textContent = `第 ${Math.max(1, Math.min(timeline.length, Math.round(currentTimelinePosition) + 1))} 格 / ${timeline.length} 格`;
   updateCurrentTimelineMarker(bp);
 
   pointLayer.textContent = "";
-
-  // 检测时间回退：bp 增大表示向过去移动
-  const currentBp = bp;
-  const isTimeRewinding = prevBp !== null && currentBp > prevBp;
-  prevBp = currentBp;
-
-  if (isTimeRewinding) {
-    // 时间回退：清除尚未出现的分支的历史轨迹
-    data.branches.forEach(branch => {
-      if (branch.age < currentBp) {
-        trailHistory.delete(branch.id);
-      }
-    });
-  }
-
-  // 每帧重建两层（渐变主体层 + 涟漪轨迹层）
-  ancientLayer.textContent = "";
+  flowLayer.textContent = "";
   trailLayer.textContent = "";
-
-  // 绘制所有分支：bp <= branch.age 时显示，进度随时间动态扩散
-  
-  const visibleBranchesForRender = [];
-  data.branches.forEach((branch) => {
-    const age = Math.max(branch.age, 1);
-    
-    // 只显示时间轴已到达该分支出现时间的分支（bp <= branch.age）
-    if (bp > branch.age) return;
-    
-    visibleBranchesForRender.push(branch);
-    
-    // 根据当前时间动态计算进度：0.08=刚出现，1=现代（区域随时间扩散，不冻结）
-    const progress = clamp((age - bp) / age, 0.08, 1);
-    
-    const pathData = buildAnimatedPolygon(branch, progress);
-    if (!pathData) {
-      return;
-    }
-
-    // 颜色与透明度随时间变化：深红高透明→白色低透明→支系色
-    const dynamicColor = getBranchColorAtTime(branch, bp);
-    const dynamicColorRgb = [
-      parseInt(dynamicColor.slice(1, 3), 16),
-      parseInt(dynamicColor.slice(3, 5), 16),
-      parseInt(dynamicColor.slice(5, 7), 16),
-    ];
-    const [dr, dg, db] = dynamicColorRgb;
-    // 时间进度：0=刚出现，1=现代
-    const tProgress = clamp((age - bp) / age, 0, 1);
-
-    // 淡入系数：前15%时间从透明渐变为不透明（这是"分别出现"的核心）
-    const fadeIn = clamp(tProgress / 0.15, 0, 1);
-
-    // 目标不透明度：深红0.85 → 白0.40 → 支系色0.85（确保区域始终清晰可见）
-    let baseOp;
-    if (tProgress <= 0.67) {
-      baseOp = 0.85 - (tProgress / 0.67) * 0.45; // 0.85 → 0.40
-    } else {
-      const t4 = (tProgress - 0.67) / 0.33;
-      baseOp = 0.40 + t4 * 0.45; // 0.40 → 0.85
-    }
-    const timeOpacity = fadeIn * baseOp;
-
-    // ── 流水拖尾效果 ──────────────────────────────────────────────────
-    // 历史帧以极低透明度填充，多帧叠加后靠近起源的区域不断积累
-    // → 近起源区域颜色深（多帧叠加），扩散前沿颜色浅（少帧），形成连续流水感
-    const history = trailHistory.get(branch.id) || [];
-    const TRAIL_FILL_OP = 0.030; // 提高每帧透明度：叠加后近原点区域清晰可见，前沿轻淡
-    history.forEach((ring) => {
-      const trailEl = document.createElementNS(SVG_NS, "path");
-      trailEl.setAttribute("d", ring.pathData);
-      trailEl.setAttribute("fill", `rgba(${ring.dr}, ${ring.dg}, ${ring.db}, ${TRAIL_FILL_OP})`);
-      trailEl.setAttribute("stroke", "none");
-      trailEl.setAttribute("filter", "url(#branchFuzzyEdge)");
-      trailLayer.appendChild(trailEl);  // 放到 trailLayer（主形状之下），避免过亮
-    });
-
-    // 当前帧：径向渐变主体（扩散前锋）+ 椭圆模糊边界
-    const gradId = ensureBranchGradient(branch, dr, dg, db);
-    const path = document.createElementNS(SVG_NS, "path");
-    path.setAttribute("class", "ancient-shape");
-    path.setAttribute("d", pathData);
-    path.setAttribute("fill", `url(#${gradId})`);
-    path.setAttribute("opacity", timeOpacity.toFixed(3));
-    // 添加半透明轮廓描边，使区域边界更清晰（不再是纯雾气效果）
-    path.setAttribute("stroke", `rgba(${dr},${dg},${db},0.65)`);
-    path.setAttribute("stroke-width", "0.7");
-    path.setAttribute("filter", "url(#branchFuzzyEdge)");
-    ancientLayer.appendChild(path);
-
-    // ── 迁移路径拖尾：由 updateFlowLines 持久红色流水层接管 ──────────
-
-    // 记录当前帧到历史（更频繁记录，使拖尾更平滑）
-    const lastHistProg = history.length > 0 ? history[history.length - 1].progress : -1;
-    if (progress - lastHistProg >= 0.025 || history.length === 0) {
-      history.push({ pathData, dr, dg, db, progress });
-      if (history.length > MAX_TRAIL_RINGS) history.shift();
-      trailHistory.set(branch.id, history);
-    }
-  });
-
-  // 更新持久红色流水线（从起源到各分支目的地）
-  updateFlowLines(visibleBranchesForRender, bp);
-
-  // 绘制分支家族文字标注（跟随扩散位置，箭头引线）
   branchLabelLayer.textContent = "";
-  // 为每个分支找出其family标注
-  const branchFamilyMap = new Map();
-  data.samples.forEach(s => {
-    if (!s.family) return;
-    const tid = s.branchSegments?.at(-1) || 'Y4569';
-    if (!branchFamilyMap.has(tid)) branchFamilyMap.set(tid, new Set());
-    branchFamilyMap.get(tid).add(s.family);
-  });
-
-  // 收集所有标签信息，再统一防碰撞排布
-  const labelItems = [];
-  visibleBranchesForRender.forEach(branch => {
-    const families = branchFamilyMap.get(branch.id);
-    if (!families || families.size === 0) return;
-    const dimOnMap = currentMapHighlightBranches !== null && !currentMapHighlightBranches.has(branch.id);
-
-    const origin = getOriginCenter(branch);
-    const region = branch.regionId ? regionMap.get(branch.regionId) : null;
-    const targetPoints = region ? region.polygon : buildFallbackPolygon(branch);
-    if (!targetPoints || targetPoints.length < 3) return;
-
-    const age = Math.max(branch.age, 1);
-    const progress = clamp((age - bp) / age, 0.08, 1);
-
-    let sumX = 0, sumY = 0;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    // 同时计算最终展开位置（progress=1），用于稳定标注方向
-    let fSumX = 0, fSumY = 0;
-    let fminX = Infinity, fmaxX = -Infinity, fminY = Infinity, fmaxY = -Infinity;
-    targetPoints.forEach(([lon, lat]) => {
-      const cLon = origin[1] + (lon - origin[1]) * progress;
-      const cLat = origin[0] + (lat - origin[0]) * progress;
-      const px = lonToX(cLon);
-      const py = latToY(cLat);
-      sumX += px; sumY += py;
-      if (px < minX) minX = px; if (px > maxX) maxX = px;
-      if (py < minY) minY = py; if (py > maxY) maxY = py;
-      // 最终位置（progress=1，不插值）
-      const fpx = lonToX(lon);
-      const fpy = latToY(lat);
-      fSumX += fpx; fSumY += fpy;
-      if (fpx < fminX) fminX = fpx; if (fpx > fmaxX) fmaxX = fpx;
-      if (fpy < fminY) fminY = fpy; if (fpy > fmaxY) fmaxY = fpy;
-    });
-    const cx = sumX / targetPoints.length;
-    const cy = sumY / targetPoints.length;
-    const fcx = fSumX / targetPoints.length; // 最终质心，用于标注位置判断
-
-    const labelText = [...families].join('/');
-    const [dr, dg, db] = [
-      parseInt(branch.color.slice(1,3),16),
-      parseInt(branch.color.slice(3,5),16),
-      parseInt(branch.color.slice(5,7),16),
-    ];
-    const branchLabel = branch.label || branch.id;
-    labelItems.push({ cx, cy, minX, maxX, minY, maxY, fcx, fminX, fmaxX, fminY, fmaxY, labelText, branchLabel, dr, dg, db, dim: dimOnMap, branchAge: branch.age });
-  });
-
-  // 防碰撞排布，标注包含支系ID和部族名
-  const FONT_SIZE = 7.5;
-  const YEAR_FONT_SIZE = 6;
-  const LINE_H = FONT_SIZE + 4;
-  // 先按 branchAge 降序排个稳定键，再按 cy 升序放置——保证同区域分支（如 Y20085/Y20087）顺序始终一致
-  labelItems.sort((a, b) => {
-    const diff = a.cy - b.cy;
-    if (Math.abs(diff) < 3) return b.branchAge - a.branchAge; // cy 接近时，更古老的分支排前面（保持在上方）
-    return diff;
-  });
-  // 预先将所有区域边界框加入占用区域，标注不会覆盖任何扩散图形
-  const placedRects = labelItems.map(item => ({
-    x: item.minX - 6, y: item.minY - 6,
-    w: item.maxX - item.minX + 12, h: item.maxY - item.minY + 12
-  }));
-  labelItems.forEach(item => {
-    const { cx, cy, fminX, fmaxX, fminY, fmaxY, fcx, labelText, branchLabel, dr, dg, db, dim, branchAge } = item;
-    // 标注淡入：同步区域展开动画从透明到可见
-    const labelTProgress = clamp((Math.max(branchAge,1) - bp) / Math.max(branchAge,1), 0, 1);
-    const labelFadeIn = clamp(labelTProgress / 0.25, 0, 1); // 标注在前25%时间内淡入
-    const alpha = dim ? 0.18 * labelFadeIn : 0.92 * labelFadeIn;
-    const lineAlpha = dim ? 0.10 * labelFadeIn : 0.60 * labelFadeIn;
-    // 使分支颜色更亮（避免深色在地图上看不清）
-    const br = Math.min(255, dr + 60), bg = Math.min(255, dg + 60), bb = Math.min(255, db + 60);
-    const mainTextW = Math.max(labelText.length * FONT_SIZE * 0.65, branchLabel.length * YEAR_FONT_SIZE * 0.65);
-    const boxH = LINE_H * 2 + 4;
-    const PAD = 14; // 标注与区域边缘的间距
-
-    // 根据区域最终位置决定标注方向（稳定，不随动画变化）
-    // 右半区域(fcx > 620) → 斜向左上；其他 → 斜向右上
-    // ly 足够高于区域上边界（小于 fminY - PAD - boxH - 4），避免防碰撞将其向下挤进区域中间
-    let lx, ly, arrowAnchorX, arrowAnchorY;
-    if (fcx > 620) {
-      // 斜向左上方放置
-      lx = fminX - mainTextW - PAD;
-      ly = fminY - PAD - boxH - 4;
-    } else {
-      // 斜向右上方放置
-      lx = fmaxX + PAD * 0.5;
-      ly = fminY - PAD - boxH - 4;
-    }
-    arrowAnchorX = cx;
-    arrowAnchorY = cy;
-
-    // 边界限制，防止超出地图
-    lx = Math.max(4, Math.min(lx, 994 - mainTextW));
-    ly = Math.max(LINE_H + 2, Math.min(ly, 490 - boxH));
-
-    // 防碰撞：向下移动
-    let attempts = 0;
-    while (attempts < 25) {
-      const r = { x: lx - 4, y: ly - 2, w: mainTextW + 12, h: boxH };
-      const collides = placedRects.some(pr =>
-        r.x < pr.x + pr.w && r.x + r.w > pr.x && r.y < pr.y + pr.h && r.y + r.h > pr.y
-      );
-      if (!collides) break;
-      ly += LINE_H;
-      attempts++;
-    }
-    placedRects.push({ x: lx - 4, y: ly - 2, w: mainTextW + 12, h: boxH });
-
-    // 虚线引线从多边形边缘出发到标注框
-    const labelMidX = lx + mainTextW * 0.5;
-    const labelMidY = ly + LINE_H;
-    const dxA = arrowAnchorX - labelMidX;
-    const dyA = arrowAnchorY - labelMidY;
-    const distA = Math.sqrt(dxA * dxA + dyA * dyA);
-    if (distA > 4) {
-      const nx = dxA / distA, ny = dyA / distA;
-
-      // 虚线主引线
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("x1", labelMidX.toFixed(1));
-      line.setAttribute("y1", labelMidY.toFixed(1));
-      line.setAttribute("x2", (arrowAnchorX - nx * 3).toFixed(1));
-      line.setAttribute("y2", (arrowAnchorY - ny * 3).toFixed(1));
-      line.setAttribute("stroke", `rgba(${br},${bg},${bb},${lineAlpha})`);
-      line.setAttribute("stroke-width", "0.8");
-      line.setAttribute("stroke-dasharray", "3.5,2");
-      branchLabelLayer.appendChild(line);
-
-      // 小三角箭头（指向区域边缘）
-      const tipX = arrowAnchorX, tipY = arrowAnchorY;
-      const baseX = arrowAnchorX - nx * 4.5, baseY = arrowAnchorY - ny * 4.5;
-      const px = -ny * 2, py = nx * 2;
-      const arrow = document.createElementNS(SVG_NS, "polygon");
-      arrow.setAttribute("points", [
-        `${tipX.toFixed(1)},${tipY.toFixed(1)}`,
-        `${(baseX + px).toFixed(1)},${(baseY + py).toFixed(1)}`,
-        `${(baseX - px).toFixed(1)},${(baseY - py).toFixed(1)}`
-      ].join(' '));
-      arrow.setAttribute("fill", `rgba(${br},${bg},${bb},${lineAlpha * 0.9})`);
-      branchLabelLayer.appendChild(arrow);
-    }
-
-    // 文字颜色：向浅色偏移以与暗色地图形成对比
-    const LIGHT = 238;
-    const fillR = Math.round(dr * 0.28 + LIGHT * 0.72);
-    const fillG = Math.round(dg * 0.28 + LIGHT * 0.72);
-    const fillB = Math.round(db * 0.28 + LIGHT * 0.72);
-    // 描边颜色：比填充色深（偏向原始支系色）
-    const sR = Math.max(0, dr - 10), sG = Math.max(0, dg - 10), sB = Math.max(0, db - 10);
-
-    // 第一行：支系ID（小字）
-    const idText = document.createElementNS(SVG_NS, "text");
-    idText.setAttribute("x", lx.toFixed(1));
-    idText.setAttribute("y", ly.toFixed(1));
-    idText.setAttribute("text-anchor", "start");
-    idText.setAttribute("font-size", YEAR_FONT_SIZE);
-    idText.setAttribute("font-family", "monospace, sans-serif");
-    idText.setAttribute("fill", `rgba(${fillR},${fillG},${fillB},${alpha * 0.75})`);
-    idText.setAttribute("stroke", `rgba(${sR},${sG},${sB},${alpha * 0.5})`);
-    idText.setAttribute("stroke-width", "0.5");
-    idText.setAttribute("paint-order", "stroke fill");
-    idText.textContent = branchLabel;
-    branchLabelLayer.appendChild(idText);
-
-    // 第二行：部族名（主字）
-    const text = document.createElementNS(SVG_NS, "text");
-    text.setAttribute("x", lx.toFixed(1));
-    text.setAttribute("y", (ly + LINE_H).toFixed(1));
-    text.setAttribute("text-anchor", "start");
-    text.setAttribute("font-size", FONT_SIZE);
-    text.setAttribute("font-weight", "700");
-    text.setAttribute("font-family", "sans-serif");
-    text.setAttribute("fill", `rgba(${fillR},${fillG},${fillB},${alpha})`);
-    text.setAttribute("stroke", `rgba(${sR},${sG},${sB},${alpha * 0.7})`);
-    text.setAttribute("stroke-width", "1.2");
-    text.setAttribute("paint-order", "stroke fill");
-    text.textContent = labelText;
-    branchLabelLayer.appendChild(text);
-  });
+  regionOverlayLayer.textContent = "";
+  flowElements.clear();
+  trailHistory.clear();
+  renderSpreadImages(bp);
 
 
   modernSamples.forEach((sample) => {
@@ -1428,14 +1681,14 @@ function initTreeMaps() {
   _treeParentMap = {};
 
   const childrenOf = new Map();
-  data.branches.forEach(b => {
+  TREE_BRANCHES.forEach(b => {
     if (b.parentId) {
       if (!childrenOf.has(b.parentId)) childrenOf.set(b.parentId, []);
       childrenOf.get(b.parentId).push(b.id);
     }
   });
 
-  data.branches.forEach(b => {
+  TREE_BRANCHES.forEach(b => {
     _treeNodeMap[b.id] = { id: b.id, name: b.id, type: 'branch', age: b.age, color: b.color, children: [] };
     _treeParentMap[b.id] = b.parentId || null;
   });
@@ -1449,7 +1702,7 @@ function initTreeMaps() {
     if (_treeNodeMap[tid]) _treeNodeMap[tid].children.push(sampleId);
   });
 
-  data.branches.forEach(b => {
+  TREE_BRANCHES.forEach(b => {
     const children = childrenOf.get(b.id) || [];
     _treeNodeMap[b.id].children.unshift(...children);
   });
@@ -1587,6 +1840,7 @@ function buildTreeOptionData(bp, highlightId, showSamples) {
 
 let currentTreeHighlight = null;
 let currentTreeBp = 0;
+let currentTreeStageKey = '';
 let currentMapHighlightBranches = null; // Set of branchIds to highlight on map (null = all)
 
 // 根据点击的树节点计算地图上应高亮的分支集合（该节点所在分支+所有祖先分支+子孙分支）
@@ -1627,10 +1881,38 @@ let _svgEl = null;
 let _svgRuler = null;
 let _svgG = null;
 let _svgDefs = null;
+let _svgCurrentBpLine = null;
 let _svgPanX = 0, _svgPanY = 0, _svgScale = 1;
 let _svgGradSeq = 0;
 let _svgViewportW = 0, _svgViewportH = 0;
 let _svgContentW = 0, _svgContentH = 0;
+
+function getTreeRenderStage(bp) {
+  const visibleBranchIds = [];
+  TREE_BRANCHES.forEach((branch) => {
+    if (branch.age >= bp) {
+      visibleBranchIds.push(branch.id);
+    }
+  });
+  const preOriginGhostRootVisible = !!(originBranch?.id && bp > originAge);
+  return {
+    preOriginGhostRootVisible,
+    visibleBranchIds,
+    key: `${preOriginGhostRootVisible ? 1 : 0}|${visibleBranchIds.join('|')}`,
+  };
+}
+
+function updateTreeCurrentBpMarker(bp) {
+  currentTreeBp = bp;
+  if (!_svgCurrentBpLine) {
+    return;
+  }
+  const currentX = SVG_TREE_PAD_L + ageToTimelineFrac(bp) * _svgContentW;
+  _svgCurrentBpLine.setAttribute('x1', String(currentX));
+  _svgCurrentBpLine.setAttribute('y1', '0');
+  _svgCurrentBpLine.setAttribute('x2', String(currentX));
+  _svgCurrentBpLine.setAttribute('y2', String(_svgViewportH + 100));
+}
 
 function ageToTimelineFrac(age) {
   if (age >= timeline[0]) return 0;
@@ -1647,13 +1929,15 @@ function ageToTimelineFrac(age) {
   return TREE_PRE_ORIGIN_SHARE + ((originAge - age) / Math.max(originAge, 1)) * (1 - TREE_PRE_ORIGIN_SHARE);
 }
 
-function computeSvgYLayout(vis, height) {
+function computeSvgYLayout(vis, height, useVisibleBranchesOnly = false) {
   const children = new Map();
   const hasParent = new Set();
-  const branchIds = data.branches.map(branch => branch.id);
+  const branchIds = useVisibleBranchesOnly
+    ? Array.from(vis).filter((id) => _treeNodeMap[id]?.type === 'branch')
+    : data.branches.map(branch => branch.id);
   branchIds.forEach(id => {
     const pid = _treeParentMap[id];
-    if (pid && branchMap.has(pid)) {
+    if (pid && branchIds.includes(pid)) {
       hasParent.add(id);
       if (!children.has(pid)) children.set(pid, []);
       children.get(pid).push(id);
@@ -1706,8 +1990,9 @@ function sankeyPathHorizontal(px, py, cx, cy, wStart, wEnd) {
   const hh1 = wStart / 2;
   const hh2 = wEnd / 2;
   const dx = cx - px;
-  const c1x = px + dx * 0.45;
-  const c2x = cx - dx * 0.45;
+  const curveFactor = Math.abs(cy - py) > Math.abs(dx) * 0.75 ? 0.3 : 0.45;
+  const c1x = px + dx * curveFactor;
+  const c2x = cx - dx * curveFactor;
   return `M${px.toFixed(1)},${(py - hh1).toFixed(1)} ` +
     `C${c1x.toFixed(1)},${(py - hh1).toFixed(1)} ${c2x.toFixed(1)},${(cy - hh2).toFixed(1)} ${cx.toFixed(1)},${(cy - hh2).toFixed(1)} ` +
     `L${cx.toFixed(1)},${(cy + hh2).toFixed(1)} ` +
@@ -1716,8 +2001,9 @@ function sankeyPathHorizontal(px, py, cx, cy, wStart, wEnd) {
 
 function sankeyCenterlineHorizontal(px, py, cx, cy) {
   const dx = cx - px;
-  const c1x = px + dx * 0.45;
-  const c2x = cx - dx * 0.45;
+  const curveFactor = Math.abs(cy - py) > Math.abs(dx) * 0.75 ? 0.3 : 0.45;
+  const c1x = px + dx * curveFactor;
+  const c2x = cx - dx * curveFactor;
   return `M${px.toFixed(1)},${py.toFixed(1)} ` +
     `C${c1x.toFixed(1)},${py.toFixed(1)} ${c2x.toFixed(1)},${cy.toFixed(1)} ${cx.toFixed(1)},${cy.toFixed(1)}`;
 }
@@ -1872,12 +2158,13 @@ function initSvgTree() {
   if (window.ResizeObserver) {
     new ResizeObserver(() => { if (_svgInited) drawSvgTree(currentTreeBp); }).observe(container);
   }
-  currentTreeBp = timeline[currentIndex];
+  currentTreeBp = getBpAtTimelinePosition(currentTimelinePosition);
   drawSvgTree(currentTreeBp);
 }
 
 function drawSvgTree(bp) {
   if (!_svgInited || !_svgEl || !_svgRuler) return;
+  const nextStage = getTreeRenderStage(bp);
   currentTreeBp = bp;
   initTreeMaps();
   const W = _svgEl.clientWidth || _svgEl.getBoundingClientRect().width || 280;
@@ -1891,45 +2178,83 @@ function drawSvgTree(bp) {
   _svgContentW = contentW;
   _svgContentH = contentH;
 
-  const vis = new Set();
-  data.branches.forEach(b => { if (b.age >= bp) vis.add(b.id); });
-  data.samples.filter(s => !s.isAncient && s.lat != null).forEach(s => {
-    const sId = `sample_${s.id}`;
-    const parentId = _treeParentMap[sId];
-    if (parentId && vis.has(parentId)) vis.add(sId);
-  });
+  const vis = new Set(nextStage.visibleBranchIds);
+  const { preOriginGhostRootVisible } = nextStage;
+  if (preOriginGhostRootVisible) {
+    vis.add(originBranch.id);
+  }
+  if (!preOriginGhostRootVisible) {
+    data.samples.filter(s => !s.isAncient && s.lat != null).forEach(s => {
+      const sId = `sample_${s.id}`;
+      const parentId = _treeParentMap[sId];
+      if (parentId && vis.has(parentId)) vis.add(sId);
+    });
+  }
   if (!vis.size) {
     _svgG.innerHTML = '';
     _svgDefs.innerHTML = '';
+    _svgCurrentBpLine = null;
+    currentTreeStageKey = nextStage.key;
     applyTreeTransform();
     return;
   }
 
-  const yMap = computeSvgYLayout(vis, contentH);
+  const yMap = computeSvgYLayout(vis, contentH, compactTree);
   const axisTicks = getTreeAxisTicks();
-  const compactXMap = compactTree ? new Map() : null;
+  const xMap = new Map();
+  function flowWidth(id) {
+    const baseWidth = getTreeFlowWidth(id);
+    if (!compactTree) {
+      return baseWidth;
+    }
+    const node = _treeNodeMap[id];
+    if (!node || node.type === 'sample') {
+      return baseWidth;
+    }
+    const depth = getTreeNodeDepth(id);
+    if (depth <= 1) {
+      return baseWidth;
+    }
+    return Math.max(baseWidth, Math.min(18.6, baseWidth * 1.35));
+  }
   function baseTreeX(id) {
     const age = _treeNodeMap[id]?.age ?? 0;
     return SVG_TREE_PAD_L + ageToTimelineFrac(age) * contentW;
   }
   function nx(id) {
-    if (!compactTree) {
-      return baseTreeX(id);
-    }
-    if (compactXMap.has(id)) {
-      return compactXMap.get(id);
+    if (xMap.has(id)) {
+      return xMap.get(id);
     }
     const baseX = baseTreeX(id);
     const parentId = _treeParentMap[id];
     if (!parentId || !vis.has(parentId)) {
-      compactXMap.set(id, baseX);
+      xMap.set(id, baseX);
       return baseX;
     }
     const node = _treeNodeMap[id];
+    const parentNode = _treeNodeMap[parentId];
     const parentX = nx(parentId);
-    const minGap = node?.type === 'sample' ? 12 : 22;
+    const parentFlowWidth = flowWidth(parentId);
+    const nodeFlowWidth = flowWidth(id);
+    const parentRawY = yMap.get(parentId) ?? (contentH / 2);
+    const nodeRawY = yMap.get(id) ?? (contentH / 2);
+    const verticalDelta = Math.abs(nodeRawY - parentRawY);
+    const ageDelta = Math.max(0, (parentNode?.age ?? 0) - (node?.age ?? 0));
+    const ageTightness = Math.max(0, 80 - ageDelta) / 80;
+    const ageCompactionGap = node?.type === 'sample' ? 0 : ageTightness * (compactTree ? 36 : 24);
+    const baseGap = (parentFlowWidth + nodeFlowWidth) * (compactTree ? 1.05 : 0.8);
+    const verticalGap = verticalDelta * (compactTree ? 0.28 : 0.12);
+    const minGap = node?.type === 'sample'
+      ? (compactTree ? 12 : 10)
+      : Math.max(
+          compactTree ? 22 : 18,
+          Math.min(
+            compactTree ? 108 : 54,
+            Math.round(baseGap + verticalGap + ageCompactionGap)
+          )
+        );
     const resolvedX = Math.max(baseX, parentX + minGap);
-    compactXMap.set(id, resolvedX);
+    xMap.set(id, resolvedX);
     return resolvedX;
   }
   function ny(id) {
@@ -1939,6 +2264,7 @@ function drawSvgTree(bp) {
 
   _svgG.innerHTML = '';
   _svgDefs.innerHTML = '';
+  _svgCurrentBpLine = null;
   _svgGradSeq = 0;
   const occupiedBranchLabels = [];
 
@@ -2005,23 +2331,79 @@ function drawSvgTree(bp) {
     line.setAttribute('stroke-width', '1'); line.setAttribute('pointer-events', 'none');
     gridG.appendChild(line);
   });
-  if (bp >= 0) {
-    const curX = SVG_TREE_PAD_L + ageToTimelineFrac(bp) * contentW;
-    const tl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    tl.setAttribute('x1', String(curX)); tl.setAttribute('y1', '0');
-    tl.setAttribute('x2', String(curX)); tl.setAttribute('y2', String(H + 100));
-    tl.setAttribute('stroke', 'rgba(0,225,253,0.5)');
-    tl.setAttribute('stroke-width', '1.5'); tl.setAttribute('stroke-dasharray', '5,4');
-    tl.setAttribute('pointer-events', 'none');
-    gridG.appendChild(tl);
-  }
+  _svgCurrentBpLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  _svgCurrentBpLine.setAttribute('stroke', 'rgba(0,225,253,0.5)');
+  _svgCurrentBpLine.setAttribute('stroke-width', '1.5');
+  _svgCurrentBpLine.setAttribute('stroke-dasharray', '5,4');
+  _svgCurrentBpLine.setAttribute('pointer-events', 'none');
+  gridG.appendChild(_svgCurrentBpLine);
   _svgG.appendChild(gridG);
 
   // 桑基流 (Edges)
   const edgeG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  vis.forEach(id => {
+  const visibleRootBranchIds = Array.from(vis).filter((id) => {
+    const node = _treeNodeMap[id];
+    if (!node || node.type !== 'branch') {
+      return false;
+    }
+    const parentId = _treeParentMap[id];
+    return !parentId || !vis.has(parentId);
+  });
+  visibleRootBranchIds.forEach((id) => {
+    const node = _treeNodeMap[id];
+    const nodeAge = node?.age ?? 0;
+    if (!node || nodeAge >= timeline[0]) {
+      return;
+    }
+    const rootX = nx(id);
+    const rootY = ny(id);
+    const trunkStartX = getTreeAxisX(timeline[0]) - Math.max(72, contentW * 0.24);
+    const trunkEndX = Math.max(trunkStartX + 32, rootX);
+    const trunkWidth = Math.max(flowWidth(id) * (compactTree ? 1.18 : 1.08), compactTree ? 18 : 14);
+    const rootColor = brightenTreeColor(node.color || '#4a9eff');
+    const ancestorColor = treeInterpolateColor('#22335d', rootColor, 0.36);
+    const trunkGradientId = `sg${_svgGradSeq++}`;
+    const trunkFill = ensureGradient(_svgDefs, trunkGradientId, ancestorColor, rootColor, trunkStartX, trunkEndX);
+
+    const trunk = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    trunk.setAttribute('d', sankeyPathHorizontal(trunkStartX, rootY, trunkEndX, rootY, trunkWidth, trunkWidth));
+    trunk.setAttribute('fill', trunkFill);
+    trunk.setAttribute('opacity', compactTree ? '0.72' : '0.64');
+    trunk.setAttribute('pointer-events', 'none');
+    edgeG.appendChild(trunk);
+
+    const trunkSpine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    trunkSpine.setAttribute('d', sankeyCenterlineHorizontal(trunkStartX, rootY, trunkEndX, rootY));
+    trunkSpine.setAttribute('fill', 'none');
+    trunkSpine.setAttribute('stroke', treeInterpolateColor(ancestorColor, rootColor, 0.68));
+    trunkSpine.setAttribute('stroke-width', String(Math.max(1.4, Math.min(trunkWidth * 0.18, 2.6))));
+    trunkSpine.setAttribute('stroke-linecap', 'round');
+    trunkSpine.setAttribute('opacity', compactTree ? '0.5' : '0.42');
+    trunkSpine.setAttribute('pointer-events', 'none');
+    edgeG.appendChild(trunkSpine);
+  });
+  const visOrder = new Map(Array.from(vis).map((id, index) => [id, index]));
+  const edgeIds = Array.from(vis).filter((id) => {
     const pid = _treeParentMap[id];
-    if (!pid || !vis.has(pid)) return;
+    return !!(pid && vis.has(pid));
+  });
+  edgeIds.sort((a, b) => {
+    const aParentId = _treeParentMap[a];
+    const bParentId = _treeParentMap[b];
+    if (aParentId !== bParentId) {
+      return (visOrder.get(aParentId) ?? 0) - (visOrder.get(bParentId) ?? 0);
+    }
+    const aNode = _treeNodeMap[a];
+    const bNode = _treeNodeMap[b];
+    const aIsSample = aNode?.type === 'sample';
+    const bIsSample = bNode?.type === 'sample';
+    if (aIsSample !== bIsSample) {
+      return aIsSample ? -1 : 1;
+    }
+    return ny(b) - ny(a);
+  });
+  edgeIds.forEach(id => {
+    const pid = _treeParentMap[id];
     const pNode = _treeNodeMap[pid], cNode = _treeNodeMap[id];
     if (!pNode || !cNode) return;
     const px = nx(pid), py = ny(pid);
@@ -2033,27 +2415,33 @@ function drawSvgTree(bp) {
     const pc = brightenTreeColor(pNode.color || '#4a9eff');
     const cc = brightenTreeColor(cNode.color || '#4a9eff');
     const isSample = cNode.type === 'sample';
-    const wTop = getTreeFlowWidth(pid);
-    const wBot = getTreeFlowWidth(id);
+    const wTop = flowWidth(pid);
+    const wBot = flowWidth(id);
     const gid = `sg${_svgGradSeq++}`;
     const fill = ensureGradient(_svgDefs, gid, pc, cc, px, cx);
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', sankeyPathHorizontal(px, py, cx, cY, wTop, wBot));
     path.setAttribute('fill', fill);
-    path.setAttribute('opacity', isUnrelated ? '0.08' : isFuture ? '0.2' : isSample ? '0.55' : '0.78');
+    path.setAttribute('opacity', isUnrelated ? '0.08' : isFuture ? '0.2' : isSample ? '0.55' : compactTree ? '0.88' : '0.78');
     path.setAttribute('pointer-events', 'none');
     edgeG.appendChild(path);
 
     if (!isSample) {
       const edgeIsAnc = !!(idIsAnc || id === currentTreeHighlight);
+      const showSpine = edgeIsAnc || !compactTree;
+      if (!showSpine) {
+        return;
+      }
+      const spineColor = edgeIsAnc ? 'rgba(180, 240, 255, 0.88)' : treeInterpolateColor(pc, cc, compactTree ? 0.62 : 0.52);
+      const spineOpacity = isUnrelated ? '0.14' : isFuture ? '0.18' : compactTree ? '0.52' : '0.44';
       const spine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       spine.setAttribute('d', sankeyCenterlineHorizontal(px, py, cx, cY));
       spine.setAttribute('fill', 'none');
-      spine.setAttribute('stroke', edgeIsAnc ? 'rgba(180, 240, 255, 0.88)' : 'rgba(255, 255, 255, 0.26)');
+      spine.setAttribute('stroke', spineColor);
       spine.setAttribute('stroke-width', String(Math.max(1.1, Math.min(wBot * 0.2, 2.2))));
       spine.setAttribute('stroke-linecap', 'round');
       spine.setAttribute('pointer-events', 'none');
-      spine.setAttribute('opacity', isUnrelated ? '0.14' : isFuture ? '0.22' : '0.72');
+      spine.setAttribute('opacity', spineOpacity);
       edgeG.appendChild(spine);
     }
   });
@@ -2074,11 +2462,12 @@ function drawSvgTree(bp) {
     const isDesc = !!(currentTreeHighlight && !isTarget && isAncestorOf(currentTreeHighlight, id));
     const isFuture = !!(currentTreeHighlight && isDesc);
     const isUnrelated = !!(currentTreeHighlight && !isTarget && !isAnc && !isDesc);
+    const isPreOriginGhost = node.type === 'branch' && id === originBranch?.id && bp > (node.age ?? 0);
 
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('transform', `translate(${nX.toFixed(1)},${nY.toFixed(1)})`);
     g.style.cursor = 'pointer';
-    g.style.opacity = isUnrelated ? '0.16' : isFuture ? '0.34' : '1';
+    g.style.opacity = isPreOriginGhost ? '0.64' : isUnrelated ? '0.16' : isFuture ? '0.34' : '1';
     g.setAttribute('data-node-id', id);
 
     if (isSample) {
@@ -2108,14 +2497,14 @@ function drawSvgTree(bp) {
       rect.setAttribute('x', String(-tw / 2)); rect.setAttribute('y', String(-rh / 2));
       rect.setAttribute('width', String(tw)); rect.setAttribute('height', String(rh));
       rect.setAttribute('rx', '9'); rect.setAttribute('ry', '9');
-      rect.setAttribute('fill', '#0a1628');
-      rect.setAttribute('stroke', isTarget ? '#00E1FD' : color);
-      rect.setAttribute('stroke-width', isTarget ? '2.5' : '2');
+      rect.setAttribute('fill', isPreOriginGhost ? 'rgba(10, 22, 40, 0.82)' : '#0a1628');
+      rect.setAttribute('stroke', isTarget ? '#00E1FD' : isPreOriginGhost ? treeInterpolateColor('#7f9cca', color, 0.62) : color);
+      rect.setAttribute('stroke-width', isTarget ? '2.5' : isPreOriginGhost ? '1.7' : '2');
       if (isTarget) rect.setAttribute('filter', `drop-shadow(0 0 8px ${color})`);
       g.appendChild(rect);
       const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('dominant-baseline', 'central');
-      lbl.setAttribute('fill', isTarget ? '#00E1FD' : color);
+      lbl.setAttribute('fill', isTarget ? '#00E1FD' : isPreOriginGhost ? treeInterpolateColor('#a9bfdf', color, 0.5) : color);
       lbl.setAttribute('font-size', '11'); lbl.setAttribute('font-weight', '700');
       lbl.setAttribute('pointer-events', 'none'); lbl.textContent = node.name;
       g.appendChild(lbl);
@@ -2135,7 +2524,7 @@ function drawSvgTree(bp) {
       const compactPriorityLabel = compactTree && allowOrdinaryLabel;
       const centeredCompactLabel = compactTree && !annotationText;
       const baseRadius = isTarget ? 9 : isAnc ? 7 : 5.5;
-      const bandRadius = Math.max(getTreeFlowWidth(id), getTreeFlowWidth(parentId || id)) * 0.58;
+      const bandRadius = Math.max(flowWidth(id), flowWidth(parentId || id)) * 0.58;
       const r = Math.max(baseRadius, bandRadius);
       const labelX = centeredCompactLabel ? 0 : (forcedLabelLayout?.x ?? (annotationText ? -8 : -10));
       const labelAnchor = centeredCompactLabel ? 'middle' : 'end';
@@ -2224,6 +2613,8 @@ function drawSvgTree(bp) {
   });
   _svgG.appendChild(nodeG);
 
+  currentTreeStageKey = nextStage.key;
+  updateTreeCurrentBpMarker(bp);
   applyTreeTransform();
 }
 
@@ -2294,7 +2685,14 @@ function initGenealogyTree() {
 
 function renderGenealogyTree(bp) {
   if (!treeState.initialized) return;
-  if (bp === currentTreeBp) return;
+  const nextStage = getTreeRenderStage(bp);
+  if (nextStage.key === currentTreeStageKey) {
+    updateTreeCurrentBpMarker(bp);
+    if (_svgRuler) {
+      drawTreeRuler(_svgViewportW || _svgRuler.clientWidth || _svgRuler.getBoundingClientRect().width || 0, bp);
+    }
+    return;
+  }
   drawSvgTree(bp);
 }
 
@@ -2324,7 +2722,7 @@ function toggleTreeExpand() {
     const onEnd = () => {
       card.classList.remove("tree-card--expanded", "tree-card--collapsing");
       card.removeEventListener("animationend", onEnd);
-      setTimeout(() => { drawSvgTree(timeline[currentIndex]); }, 30);
+      setTimeout(() => { drawSvgTree(getBpAtTimelinePosition(currentTimelinePosition)); }, 30);
     };
     card.addEventListener("animationend", onEnd);
     if (btn) btn.innerHTML = "&#x2922;";
@@ -2371,12 +2769,38 @@ function highlightSampleOnMap(sample) {
   const launchBtn = document.getElementById("introLaunchBtn");
   const filmCaption = document.getElementById("introFilmCaption");
   const leadText = document.getElementById("introLeadText");
+  const introCopy = intro.querySelector(".intro-copy");
+  const introCopyMask = intro.querySelector(".intro-copy-mask");
+  const manifesto = intro.querySelector(".intro-manifesto");
+  const flowTitle = intro.querySelector(".intro-flow-title");
+  const flowTag = intro.querySelector(".intro-flow-tag");
+  const flowCaption = intro.querySelector(".intro-flow-caption");
+  const flowFigure = document.getElementById("introFlowFigure");
   if (!intro || !canvas || !tribeList || !launchBtn) return;
 
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
   const INTRO_BRANCH_IDS = ["MF247416", "BY182928", "Y20085", "Y20087", "ZQ32"];
+  const INTRO_REFERENCE_YEAR = new Date().getFullYear();
+  const INTRO_CALLOUT_LAYOUT_PLAN = new Map([
+    ["BY182928", { side: "left", slot: 0, lane: 0 }],
+    ["Y20085", { side: "left", slot: 1, lane: 1 }],
+    ["Y20087", { side: "left", slot: 2, lane: 2 }],
+    ["MF247416", { side: "right", slot: 0, lane: 0 }],
+    ["ZQ32", { side: "right", slot: 1, lane: 1 }],
+  ]);
+  const INTRO_SANKEY_BRANCH_LAYOUT = new Map([
+    ["MF247416", { top: 104, offsetX: -46 }],
+    ["Y20085", { top: 18, offsetX: -132 }],
+    ["ZQ32", { top: 136, offsetX: -86 }],
+    ["BY182928", { top: 84, offsetX: -14 }],
+    ["Y20087", { top: 220, offsetX: -14 }],
+  ]);
+  const INTRO_CALLOUT_SLOT_OFFSETS = {
+    left: [-0.38, 0.02, 0.34],
+    right: [-0.1, 0.32],
+  };
   const originLon = 123.45;
   const originLat = 50.58;
   const modernSamples = data.samples.filter((sample) => !sample.isAncient && sample.lat != null && sample.lon != null);
@@ -2384,7 +2808,6 @@ function highlightSampleOnMap(sample) {
     .map((sample) => ({
       lat: sample.lat,
       lon: sample.lon,
-      branchId: sample.branchSegments?.at(-1) || data.meta.branch,
       color: brightenTreeColor(branchMap.get(sample.branchSegments?.at(-1) || data.meta.branch)?.color || "#8ec5ff"),
       chinaFocus: sample.lon >= 73 && sample.lon <= 135 && sample.lat >= 18 && sample.lat <= 54,
     }))
@@ -2395,83 +2818,238 @@ function highlightSampleOnMap(sample) {
     [[-81, 12], [-70, 8], [-65, -5], [-60, -20], [-58, -35], [-65, -50], [-75, -54], [-78, -20], [-81, 0], [-81, 12]],
     [[-17, 37], [0, 36], [15, 32], [25, 24], [33, 17], [38, 4], [42, -15], [32, -34], [18, -34], [8, -20], [-5, 5], [-10, 24], [-17, 37]],
     [[-10, 36], [5, 43], [22, 45], [40, 55], [60, 58], [80, 57], [100, 60], [120, 55], [135, 50], [145, 45], [150, 35], [140, 20], [122, 8], [112, 0], [100, 6], [80, 12], [65, 25], [45, 30], [30, 36], [18, 36], [5, 41], [-10, 36]],
-    [[112, -10], [130, -15], [145, -25], [154, -35], [145, -44], [128, -41], [114, -28], [112, -10]],
   ];
-  const chinaWireframe = [[73, 39], [79, 45], [87, 49], [96, 49], [107, 53], [124, 49], [134, 46], [132, 40], [125, 31], [118, 24], [110, 21], [101, 22], [91, 28], [84, 30], [79, 35], [73, 39]];
-  let worldBorderPaths = [];
-  let chinaBorderPaths = [];
-
-  const starField = Array.from({ length: 180 }, () => ({
+  const chinaWireframe = [
+    [74, 40],
+    [79, 47],
+    [88, 49],
+    [96, 47],
+    [104, 44],
+    [112, 45],
+    [121, 49],
+    [131, 47],
+    [132, 41],
+    [126, 37],
+    [123, 30],
+    [118, 24],
+    [111, 21],
+    [104, 22],
+    [98, 26],
+    [92, 28],
+    [86, 31],
+    [81, 34],
+    [76, 37],
+    [74, 40],
+  ];
+  const worldBorderPaths = [];
+  const chinaBorderPaths = [];
+  const starField = Array.from({ length: 92 }, () => ({
     x: Math.random(),
     y: Math.random(),
-    size: Math.random() * 1.6 + 0.4,
-    alpha: Math.random() * 0.65 + 0.2,
-    drift: Math.random() * 0.0015 + 0.0003,
+    size: 0.4 + Math.random() * 1.4,
+    alpha: 0.18 + Math.random() * 0.48,
+    floatAmplitude: 4 + Math.random() * 18,
+    swayAmplitude: 2 + Math.random() * 12,
+    floatSpeed: 0.00022 + Math.random() * 0.00028,
+    pulseSpeed: 0.001 + Math.random() * 0.0011,
+    phase: Math.random() * Math.PI * 2,
   }));
 
+  function normalizeIntroMatcher(value) {
+    return `${value || ""}`
+      .toLowerCase()
+      .replace(/[\s·•,，/()（）-]+/g, "")
+      .trim();
+  }
+
+  function formatIntroAppearance(bp) {
+    if (!Number.isFinite(bp) || bp <= 0) return "时间待补";
+    return `约公元${INTRO_REFERENCE_YEAR - Math.round(bp)}年`;
+  }
+
+  function formatIntroLocation(location, distribution) {
+    return `${location || distribution || "终局位置待补"}`
+      .replace(/[，,]/g, " · ")
+      .replace(/\s*\/\s*/g, " / ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function scoreIntroRepresentativeSample(sample, annotationText) {
+    let score = 0;
+    const normalizedAnnotation = normalizeIntroMatcher(annotationText);
+    const normalizedFamily = normalizeIntroMatcher(sample.family);
+    const normalizedTribe = normalizeIntroMatcher(sample.tribe);
+    const hasCoordinates = sample.lat != null && sample.lon != null;
+
+    if (normalizedFamily && normalizedAnnotation) {
+      if (normalizedFamily === normalizedAnnotation) score += 180;
+      else if (normalizedAnnotation.includes(normalizedFamily)) score += 120;
+      else if (normalizedFamily.includes(normalizedAnnotation)) score += 84;
+    }
+
+    if (normalizedTribe && normalizedAnnotation) {
+      if (normalizedTribe === normalizedAnnotation) score += 96;
+      else if (normalizedAnnotation.includes(normalizedTribe)) score += 42;
+    }
+
+    if (sample.family) score += 30;
+    if (sample.tribe) score += 12;
+    if (sample.location) score += 14;
+    if (hasCoordinates) score += 24;
+
+    return score;
+  }
+
+  function getIntroRepresentativeSample(samples, annotationText) {
+    return samples
+      .map((sample) => ({
+        sample,
+        score: scoreIntroRepresentativeSample(sample, annotationText),
+      }))
+      .sort((left, right) => right.score - left.score || (left.sample.sourceRow || 0) - (right.sample.sourceRow || 0))[0]?.sample || null;
+  }
+
   const tribeCards = INTRO_BRANCH_IDS.map((branchId) => {
+    const branch = branchMap.get(branchId);
     const samples = modernSamples.filter((sample) => sample.branchSegments?.at(-1) === branchId);
-    const locationCount = new Map();
-    samples.forEach((sample) => {
-      if (!sample.location) return;
-      locationCount.set(sample.location, (locationCount.get(sample.location) || 0) + 1);
-    });
-    const rankedLocations = [...locationCount.entries()].sort((left, right) => right[1] - left[1]);
-    const primaryLocation = rankedLocations[0]?.[0] || samples[0]?.location || "终局位置待补";
-    const primarySample = samples.find((sample) => sample.location === primaryLocation) || samples[0] || null;
+    const annotation = treeBranchAnnotations.get(branchId) || getTreeBranchAnnotation(branchId) || branchId;
+    const primarySample = getIntroRepresentativeSample(samples, annotation) || samples[0] || null;
+    const fallbackCenter = branch?.center || [];
+    const age = branch?.age ?? Math.max(...samples.map((sample) => sample.tmrca || 0), 0);
+    const primaryLat = primarySample?.lat ?? fallbackCenter[0] ?? null;
+    const primaryLon = primarySample?.lon ?? fallbackCenter[1] ?? null;
+    const primaryLocation = formatIntroLocation(primarySample?.location, branch?.distribution);
     return {
       branchId,
-      code: branchMap.get(branchId)?.name || branchId,
-      label: treeBranchAnnotations.get(branchId) || getTreeBranchAnnotation(branchId) || branchId,
-      location: primaryLocation.replace(/,/g, " · "),
-      coord: primarySample && primarySample.lat != null && primarySample.lon != null
-        ? `${Math.abs(primarySample.lat).toFixed(1)}°${primarySample.lat >= 0 ? "N" : "S"} · ${Math.abs(primarySample.lon).toFixed(1)}°${primarySample.lon >= 0 ? "E" : "W"}`
+      code: branch?.label || branchId,
+      label: annotation,
+      location: primaryLocation,
+      age,
+      appearance: formatIntroAppearance(age),
+      appearanceYearValue: age === 0 ? INTRO_REFERENCE_YEAR : INTRO_REFERENCE_YEAR - age,
+      coord: primaryLat != null && primaryLon != null
+        ? `${Math.abs(primaryLat).toFixed(1)}°${primaryLat >= 0 ? "N" : "S"} · ${Math.abs(primaryLon).toFixed(1)}°${primaryLon >= 0 ? "E" : "W"}`
         : "坐标待补",
-      lat: primarySample?.lat ?? null,
-      lon: primarySample?.lon ?? null,
-      color: brightenTreeColor(branchMap.get(branchId)?.color || "#8ec5ff")
+      lat: primaryLat,
+      lon: primaryLon,
+      color: brightenTreeColor(branch?.color || "#8ec5ff"),
+      sourceRow: primarySample?.sourceRow ?? null,
     };
   });
 
   tribeList.innerHTML = tribeCards.map((card, index) => `
-    <article class="intro-tribe-callout intro-tribe-callout--${index}" data-branch-id="${card.branchId}">
+    <article class="intro-tribe-callout intro-tribe-callout--${index}" data-branch-id="${card.branchId}" data-source-row="${card.sourceRow || ""}">
       <div class="intro-tribe-name">${card.label}</div>
-      <div class="intro-tribe-code">${card.code}</div>
-      <div class="intro-tribe-location">${card.location}</div>
     </article>
   `).join("");
 
   const flowSvg = document.getElementById("introFlowSvg");
   if (flowSvg) {
-    const originX = 120;
-    const originY = 138;
-    const destinations = [48, 98, 148, 198, 248];
-    flowSvg.innerHTML = `
-      <circle cx="${originX}" cy="${originY}" r="8" fill="#9ed8ff" opacity="0.92"></circle>
-      <circle cx="${originX}" cy="${originY}" r="18" fill="none" stroke="rgba(120,194,255,0.22)" stroke-width="1.2"></circle>
-      <text x="52" y="126" fill="rgba(232,242,255,0.9)" font-size="17">共同祖源</text>
-      <text x="52" y="149" fill="rgba(150,182,220,0.66)" font-size="11" letter-spacing="2">Y4569 ORIGIN</text>
-      ${tribeCards.map((card, index) => {
-        const targetY = destinations[index];
-        const targetX = 680;
-        const ctrlX = 340 + index * 18;
-        return `
-          <path d="M ${originX} ${originY} C ${ctrlX} ${originY}, ${ctrlX} ${targetY}, ${targetX} ${targetY}" fill="none" stroke="${card.color}" stroke-width="2.3" stroke-linecap="round" opacity="0.82"></path>
-          <circle cx="${targetX}" cy="${targetY}" r="5" fill="${card.color}" opacity="0.95"></circle>
-          <text x="530" y="${targetY - 8}" fill="rgba(239,246,255,0.92)" font-size="14">${card.label}</text>
-          <text x="530" y="${targetY + 12}" fill="rgba(150,182,220,0.7)" font-size="10" letter-spacing="1.2">${card.location}</text>
-        `;
-      }).join("")}
+    if (flowTag) flowTag.textContent = "Temporal Comparison";
+    if (flowTitle) flowTitle.textContent = "五部族时空对比";
+    if (flowCaption) flowCaption.textContent = "以 Y4569 共祖为起点，沿出现时间轴向五个部族分流。";
+
+    const rankedCards = [...tribeCards].sort((left, right) => left.appearanceYearValue - right.appearanceYearValue);
+    const originAppearanceYearValue = originBranch?.age === 0
+      ? INTRO_REFERENCE_YEAR
+      : INTRO_REFERENCE_YEAR - (originBranch?.age ?? 0);
+    const originAppearanceLabel = originBranch ? formatIntroAppearance(originBranch.age) : "起点";
+    const minAppearanceYear = Math.min(originAppearanceYearValue, ...rankedCards.map((card) => card.appearanceYearValue));
+    const maxAppearanceYear = Math.max(...rankedCards.map((card) => card.appearanceYearValue));
+    const appearanceRange = Math.max(maxAppearanceYear - minAppearanceYear, 1);
+    const sankeyViewWidth = 600;
+    const sankeyViewHeight = 318;
+    const sourceNode = { x: 24, y: 130, width: 104, height: 56 };
+    const branchNode = { width: 116, height: 76 };
+    const timelineStartX = 190;
+    const timelineEndX = sankeyViewWidth - 60;
+    const timelineAxisY = 160;
+    const sourceCenterX = sourceNode.x + sourceNode.width / 2;
+    const sourceCenterY = sourceNode.y + sourceNode.height / 2;
+
+    const sankeyCards = rankedCards.map((card) => {
+      const layout = INTRO_SANKEY_BRANCH_LAYOUT.get(card.branchId) || { top: 112, offsetX: 0 };
+      const normalized = (card.appearanceYearValue - minAppearanceYear) / appearanceRange;
+      const centerX = timelineStartX + normalized * (timelineEndX - timelineStartX) + (layout.offsetX || 0);
+      const centerY = layout.top + branchNode.height / 2;
+      const targetX = centerX - branchNode.width / 2 + 4;
+      const controlOffset = Math.max(72, (targetX - (sourceNode.x + sourceNode.width)) * 0.4);
+      const path = [
+        `M ${sourceNode.x + sourceNode.width} ${sourceCenterY}`,
+        `C ${sourceNode.x + sourceNode.width + controlOffset} ${sourceCenterY}`,
+        `${targetX - controlOffset * 0.6} ${centerY}`,
+        `${targetX} ${centerY}`,
+      ].join(" ");
+      const xPercent = (centerX / sankeyViewWidth * 100).toFixed(2);
+      return {
+        ...card,
+        top: layout.top,
+        centerY,
+        xPercent,
+        xPixel: centerX,
+        path,
+      };
+    });
+
+    const sankeyGradients = sankeyCards.map((card) => `
+      <linearGradient id="introSankeyGrad-${card.branchId}" x1="${sourceNode.x + sourceNode.width}" y1="${timelineAxisY}" x2="${card.xPixel.toFixed(1)}" y2="${card.centerY.toFixed(1)}">
+        <stop offset="0%" stop-color="rgba(120, 176, 255, 0.14)"></stop>
+        <stop offset="100%" stop-color="${card.color}"></stop>
+      </linearGradient>
+    `).join("");
+
+    const sankeyPaths = sankeyCards.map((card) => `
+      <path class="intro-flow-sankey-ribbon" d="${card.path}" stroke="url(#introSankeyGrad-${card.branchId})"></path>
+    `).join("");
+
+    const sankeyNodes = sankeyCards.map((card) => `
+      <article class="intro-flow-sankey-node intro-flow-sankey-node--branch" style="--accent:${card.color}; --x:${card.xPercent}%; --y:${card.top}px;" title="${card.coord}">
+        <div class="intro-flow-sankey-code">${card.code}</div>
+        <div class="intro-flow-sankey-name">${card.label}</div>
+        <div class="intro-flow-sankey-time">${card.appearance}</div>
+        <div class="intro-flow-sankey-location">${card.location}</div>
+      </article>
+    `).join("");
+
+    const flowBoard = document.createElement("div");
+    flowBoard.className = "intro-flow-board";
+    flowBoard.innerHTML = `
+      <div class="intro-flow-scale">
+        <span class="intro-flow-scale-bound">${originAppearanceLabel}</span>
+        <span class="intro-flow-scale-title">Sankey Timeline</span>
+        <span class="intro-flow-scale-bound">${rankedCards.at(-1)?.appearance || ""}</span>
+      </div>
+      <div class="intro-flow-sankey">
+        <svg class="intro-flow-sankey-svg" viewBox="0 0 ${sankeyViewWidth} ${sankeyViewHeight}" preserveAspectRatio="none" aria-hidden="true">
+          <defs>${sankeyGradients}</defs>
+          <line class="intro-flow-sankey-axis" x1="${sourceCenterX}" y1="${timelineAxisY}" x2="${timelineEndX}" y2="${timelineAxisY}"></line>
+          ${sankeyPaths}
+        </svg>
+        <article class="intro-flow-sankey-node intro-flow-sankey-node--origin" style="--x:${(sourceCenterX / sankeyViewWidth * 100).toFixed(2)}%; --y:${sourceNode.y}px;">
+          <div class="intro-flow-sankey-origin-label">Y4569 共祖</div>
+          <div class="intro-flow-sankey-origin-time">${originAppearanceLabel}</div>
+          <div class="intro-flow-sankey-origin-meta">共同祖源</div>
+        </article>
+        ${sankeyNodes}
+      </div>
     `;
+    flowSvg.replaceWith(flowBoard);
   }
 
   if (leadText) {
-    leadText.textContent = `从远空环绕的地球镜头切入，聚焦 ${tribeCards.length} 个关键部族的终局落点、迁徙方向与现代分布。`;
+    leadText.textContent = `镜头自远空推进，聚焦 ${tribeCards.length} 个关键部族在表格样本中的现代终局与导线关系。`;
+  }
+
+  if (manifesto) {
+    manifesto.innerHTML = "<p>开场页的地点、经纬度与出现时间均直接汇总自表格样本数据，最早出现时间取支系在表中的 TMRCA。</p>";
   }
 
   let width = 0;
   let height = 0;
   let rafId = 0;
+  let introFallbackTimer = 0;
+  let lastIntroFrameAt = 0;
   let startTime = 0;
   const startRotation = -1.85;
   const finalRotation = -0.42;
@@ -2695,14 +3273,19 @@ function highlightSampleOnMap(sample) {
       if (card.lat == null || card.lon == null) return;
       const targetProjection = projectOnGlobe(card.lon, card.lat, centerX, centerY, radius, globeRotation);
       if (!targetProjection.visible) return;
-      const ctrlX = (originProjection.x + targetProjection.x) / 2 + radius * 0.18;
-      const ctrlY = Math.min(originProjection.y, targetProjection.y) - radius * 0.22 - index * 8;
+      const slotAngle = card.slotAngle ?? Math.atan2(targetProjection.y - centerY, targetProjection.x - centerX);
+      const ctrlX = (originProjection.x + targetProjection.x) / 2 + Math.cos(slotAngle) * radius * 0.14;
+      const ctrlY = (originProjection.y + targetProjection.y) / 2 + Math.sin(slotAngle) * radius * 0.14 - radius * 0.18 - index * 3;
       ctx.beginPath();
       ctx.moveTo(originProjection.x, originProjection.y);
       ctx.quadraticCurveTo(ctrlX, ctrlY, targetProjection.x, targetProjection.y);
-      ctx.strokeStyle = withAlpha(card.color, 0.22 + reveal * 0.42);
-      ctx.lineWidth = 1.2;
+      ctx.save();
+      ctx.strokeStyle = withAlpha(card.color, 0.52 + reveal * 0.34);
+      ctx.lineWidth = 1.8;
+      ctx.shadowColor = withAlpha(card.color, 0.42);
+      ctx.shadowBlur = 12;
       ctx.stroke();
+      ctx.restore();
 
       ctx.beginPath();
       ctx.fillStyle = withAlpha(card.color, 0.38 + reveal * 0.54);
@@ -2718,30 +3301,188 @@ function highlightSampleOnMap(sample) {
     });
   }
 
-  function drawCalloutLines(centerX, centerY, radius, globeRotation, reveal) {
-    if (!calloutEls.length) return;
+  function getGlobeBoundaryX(y, centerX, centerY, radius, side) {
+    const offsetY = y - centerY;
+    if (Math.abs(offsetY) >= radius) return null;
+    const offsetX = Math.sqrt(Math.max(radius * radius - offsetY * offsetY, 0));
+    return side === "right" ? centerX + offsetX : centerX - offsetX;
+  }
+
+  function layoutIntroCallouts(centerX, centerY, radius, globeRotation) {
+    if (!calloutEls.length) return [];
+
+    const viewportPaddingX = 18;
+    const viewportPaddingY = 20;
+    const sideGap = clamp(radius * 0.05, 12, 18);
+    const laneSpread = clamp(radius * 0.045, 12, 20);
+    const radialSpread = clamp(radius * 0.1, 28, 44);
+    const stackGap = 12;
+    const flowFigureRect = flowFigure?.getBoundingClientRect() || null;
+    const copyContentRight = [
+      intro.querySelector(".intro-title"),
+      leadText,
+      launchBtn,
+      manifesto,
+    ]
+      .map((element) => element?.getBoundingClientRect())
+      .filter(Boolean)
+      .reduce((maxRight, rect) => Math.max(maxRight, rect.right), viewportPaddingX);
+    const sideGroups = { left: [], right: [] };
+    const layouts = [];
+
     tribeCards.forEach((card, index) => {
       if (card.lat == null || card.lon == null) return;
+
       const el = calloutEls[index];
       if (!el) return;
+
       const point = projectOnGlobe(card.lon, card.lat, centerX, centerY, radius, globeRotation);
-      const rect = el.getBoundingClientRect();
-      const anchorOnLeft = rect.left > centerX;
-      const anchorX = anchorOnLeft ? rect.left : rect.right;
-      const anchorY = rect.top + rect.height * 0.5;
-      const bendX = anchorOnLeft ? point.x + 46 : point.x - 46;
+      if (!point.visible) {
+        el.style.opacity = "0";
+        return;
+      }
+
+      el.style.opacity = "";
+
+      const cardWidth = el.offsetWidth || 220;
+      const cardHeight = el.offsetHeight || 24;
+      const layoutPlan = INTRO_CALLOUT_LAYOUT_PLAN.get(card.branchId) || null;
+      const side = layoutPlan?.side || (point.x >= centerX ? "right" : "left");
+      const slotOffsets = INTRO_CALLOUT_SLOT_OFFSETS[side] || [0];
+      const slotIndex = Math.min(layoutPlan?.slot ?? sideGroups[side].length, slotOffsets.length - 1);
+      const lane = layoutPlan?.lane ?? slotIndex;
+      const slotCenterY = centerY + radius * (slotOffsets[slotIndex] || 0);
+      const laneOffset = lane * laneSpread;
+      const slotMagnitude = Math.abs(slotOffsets[slotIndex] || 0);
+      const radialOffset = radialSpread * (0.6 + slotMagnitude);
+      const idealLeft = side === "right"
+        ? centerX + radius + sideGap + radialOffset + laneOffset * 0.38
+        : centerX - radius - cardWidth - sideGap - radialOffset - laneOffset * 0.22;
+
+      sideGroups[side].push({
+        index,
+        el,
+        point,
+        side,
+        width: cardWidth,
+        height: cardHeight,
+        idealLeft,
+        idealTop: slotCenterY - cardHeight * 0.5,
+      });
+    });
+
+    ["left", "right"].forEach((side) => {
+      const items = sideGroups[side].sort((left, right) => left.idealTop - right.idealTop);
+      if (!items.length) return;
+
+      items.forEach((item, index) => {
+        const minTop = viewportPaddingY;
+        const maxTop = height - viewportPaddingY - item.height;
+        const stackedTop = index === 0
+          ? item.idealTop
+          : Math.max(item.idealTop, items[index - 1].top + items[index - 1].height + stackGap);
+        item.top = clamp(stackedTop, minTop, maxTop);
+      });
+
+      for (let index = items.length - 2; index >= 0; index -= 1) {
+        const current = items[index];
+        const next = items[index + 1];
+        const maxTop = next.top - current.height - stackGap;
+        current.top = Math.min(current.top, maxTop);
+      }
+
+      items.forEach((item) => {
+        const minTop = viewportPaddingY;
+        const maxTop = height - viewportPaddingY - item.height;
+        item.top = clamp(item.top, minTop, maxTop);
+        const flowBlockEdge = flowFigureRect && item.top + item.height > flowFigureRect.top - 12
+          ? flowFigureRect.right + 18
+          : viewportPaddingX;
+        const leftReservedEdge = Math.max(
+          viewportPaddingX,
+          copyContentRight + 24,
+          flowBlockEdge,
+        );
+        const minLeft = item.side === "left" ? leftReservedEdge : viewportPaddingX;
+        const maxLeft = width - viewportPaddingX - item.width;
+
+        item.left = clamp(item.idealLeft, minLeft, maxLeft);
+        item.anchorX = item.side === "right" ? item.left : item.left + item.width;
+        item.anchorY = item.top + item.height * 0.5;
+        layouts[item.index] = item;
+      });
+
+      items.forEach((item) => {
+        item.el.dataset.side = item.side;
+        item.el.style.left = `${item.left.toFixed(1)}px`;
+        item.el.style.top = `${item.top.toFixed(1)}px`;
+        item.el.style.right = "auto";
+      });
+    });
+
+    return layouts;
+  }
+
+  function drawCalloutLines(centerX, centerY, radius, globeRotation, reveal) {
+    const layouts = layoutIntroCallouts(centerX, centerY, radius, globeRotation);
+    if (!layouts.length) return;
+
+    layouts.forEach((item, index) => {
+      if (!item) return;
+
+      const card = tribeCards[index];
+
       ctx.beginPath();
-      ctx.moveTo(point.x, point.y);
-      ctx.lineTo(bendX, point.y);
-      ctx.lineTo(anchorX, anchorY);
-      ctx.strokeStyle = withAlpha(card.color, 0.18 + reveal * 0.68);
-      ctx.lineWidth = 1.1;
+      ctx.moveTo(item.point.x, item.point.y);
+      ctx.lineTo(item.anchorX, item.anchorY);
+      ctx.save();
+      ctx.strokeStyle = withAlpha(card.color, 0.58 + reveal * 0.28);
+      ctx.lineWidth = 1.7;
+  ctx.lineCap = "round";
+      ctx.shadowColor = withAlpha(card.color, 0.38);
+      ctx.shadowBlur = 10;
       ctx.stroke();
+      ctx.restore();
     });
   }
 
-  function drawIntroFrame(timestamp) {
+  function primeIntroReveal() {
+    introCopy.style.setProperty("opacity", "0", "important");
+    introCopy.style.setProperty("transform", "translateY(28px)", "important");
+    introCopy.style.setProperty("transition", "opacity 0.9s ease, transform 0.9s ease", "important");
+    introCopy.style.setProperty("pointer-events", "none", "important");
+    if (introCopyMask) {
+      introCopyMask.style.setProperty("opacity", "1", "important");
+    }
+    if (filmCaption) {
+      filmCaption.style.setProperty("opacity", "0", "important");
+      filmCaption.style.setProperty("transform", "translateY(28px)", "important");
+      filmCaption.style.setProperty("transition", "opacity 0.9s ease, transform 0.9s ease", "important");
+    }
+  }
+
+  function revealIntroContent() {
+    if (introReady) return;
+    introReady = true;
+    intro.classList.remove("is-cinematic");
+    intro.classList.add("is-ready");
+    window.setTimeout(() => {
+      if (introCopyMask) {
+        introCopyMask.style.setProperty("opacity", "0", "important");
+      }
+      introCopy.style.setProperty("opacity", "1", "important");
+      introCopy.style.setProperty("transform", "translateY(0)", "important");
+      introCopy.style.setProperty("pointer-events", "auto", "important");
+      if (filmCaption) {
+        filmCaption.style.setProperty("opacity", "1", "important");
+        filmCaption.style.setProperty("transform", "translateY(0)", "important");
+      }
+    }, 24);
+  }
+
+  function drawIntroFrame(timestamp, scheduleNext = true) {
     if (!startTime) startTime = timestamp;
+    lastIntroFrameAt = timestamp;
     const elapsed = timestamp - startTime;
     const travelProgress = clamp(elapsed / 5400, 0, 1);
     const cinematicProgress = easeOutCubic(travelProgress);
@@ -2752,13 +3493,21 @@ function highlightSampleOnMap(sample) {
     ctx.clearRect(0, 0, width, height);
 
     starField.forEach((star) => {
-      const y = ((star.y + elapsed * star.drift * 0.02) % 1) * height;
-      const x = star.x * width;
+      const floatWave = Math.sin(elapsed * star.floatSpeed + star.phase);
+      const swayWave = Math.cos(elapsed * star.floatSpeed * 0.72 + star.phase);
+      const pulse = 0.58 + 0.42 * ((Math.sin(elapsed * star.pulseSpeed + star.phase) + 1) * 0.5);
+      const x = star.x * width + swayWave * star.swayAmplitude;
+      const y = star.y * height + floatWave * star.floatAmplitude;
+      if (x < -12 || x > width + 12 || y < -12 || y > height + 12) return;
       ctx.beginPath();
-      ctx.fillStyle = `rgba(225, 238, 255, ${star.alpha})`;
-      ctx.arc(x, y, star.size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(225, 238, 255, ${(star.alpha * pulse).toFixed(3)})`;
+      ctx.shadowColor = `rgba(178, 220, 255, ${(star.alpha * pulse * 0.54).toFixed(3)})`;
+      ctx.shadowBlur = star.size * 3.2 * pulse;
+      ctx.arc(x, y, star.size * (0.86 + pulse * 0.32), 0, Math.PI * 2);
       ctx.fill();
     });
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
 
     const centerX = width * (0.72 - cinematicProgress * 0.04);
     const centerY = height * (0.62 - cinematicProgress * 0.08);
@@ -2828,8 +3577,7 @@ function highlightSampleOnMap(sample) {
     }
 
     if (!introReady && travelProgress >= 0.72) {
-      introReady = true;
-      intro.classList.add("is-ready");
+      revealIntroContent();
     }
 
     if (!calloutsReady && tribeReveal >= 0.08) {
@@ -2837,13 +3585,20 @@ function highlightSampleOnMap(sample) {
       intro.classList.add("callouts-ready");
     }
 
-    rafId = window.requestAnimationFrame(drawIntroFrame);
+    if (scheduleNext) {
+      rafId = window.requestAnimationFrame((nextTimestamp) => drawIntroFrame(nextTimestamp, true));
+    }
   }
 
   function launchExperience() {
+    if (introFallbackTimer) {
+      window.clearInterval(introFallbackTimer);
+      introFallbackTimer = 0;
+    }
     stopPlayback();
+    currentTimelinePosition = 0;
     currentIndex = 0;
-    slider.value = String(currentIndex);
+    slider.value = String(currentTimelinePosition);
     render();
     document.body.classList.remove("intro-active");
   }
@@ -2851,11 +3606,26 @@ function highlightSampleOnMap(sample) {
   resizeIntroCanvas();
   window.addEventListener("resize", resizeIntroCanvas);
   launchBtn.addEventListener("click", launchExperience);
-  rafId = window.requestAnimationFrame(drawIntroFrame);
+  primeIntroReveal();
+  introFallbackTimer = window.setInterval(() => {
+    if (!document.body.classList.contains("intro-active")) {
+      window.clearInterval(introFallbackTimer);
+      introFallbackTimer = 0;
+      return;
+    }
+    const now = performance.now();
+    if (now - lastIntroFrameAt > 12) {
+      drawIntroFrame(now, false);
+    }
+  }, 16);
+  rafId = window.requestAnimationFrame((timestamp) => drawIntroFrame(timestamp, true));
 
   window.addEventListener("pagehide", () => {
     if (rafId) {
       window.cancelAnimationFrame(rafId);
+    }
+    if (introFallbackTimer) {
+      window.clearInterval(introFallbackTimer);
     }
   }, { once: true });
 })();

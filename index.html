@@ -22,12 +22,33 @@
       <div class="intro-shell">
         <div class="intro-copy">
           <p class="intro-kicker">Y4569 Migration Observatory</p>
-          <h1 class="intro-title">父系 C-Y4569<br />部族迁徙全景</h1>
-          <p class="intro-lead" id="introLeadText">镜头自远空推进，落在五大部族的现代终局版图。</p>
+          <div class="intro-title-block">
+            <h1 class="intro-title">
+              <span class="intro-title-primary">
+                <button
+                  id="branchDrawerTrigger"
+                  type="button"
+                  class="branch-drawer-trigger"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="branchDrawer"
+                >
+                  <span class="branch-drawer-trigger-text">父系C-Y4569</span>
+                  <span class="branch-drawer-caret" aria-hidden="true"></span>
+                </button>
+              </span>
+              <span>部族迁徙全景</span>
+            </h1>
+            <div id="branchDrawer" class="branch-drawer" hidden>
+              <div class="branch-drawer-header">支系列表</div>
+              <div id="branchDrawerList" class="branch-drawer-list"></div>
+              <div class="branch-drawer-hint">上传并发布新支系后，会自动出现在这里。</div>
+            </div>
+          </div>
+          <p class="intro-lead" id="introLeadText">镜头自远空推进，聚焦五大部族的现代终局与导线关系。</p>
 
           <div class="intro-manifesto">
-            <p>DNA 父系证据与人类学、民族学视角并置，重看草原部族扩散与中华民族共同体的形成逻辑。</p>
-            <p>导线解释五部族分化方向与现代终局，点击“开始详细解析”进入完整交互分析。</p>
+            <p>DNA 父系证据与民族学视角并置，导线对应五部族的分化方向与现代终局。</p>
           </div>
 
           <button id="introLaunchBtn" class="intro-launch-btn" type="button">
@@ -43,6 +64,7 @@
             <svg id="introFlowSvg" viewBox="0 0 760 290" preserveAspectRatio="none" aria-label="五部族扩散图"></svg>
             <div class="intro-flow-caption">从共同祖源出发，分化为五条现代终局支脉。</div>
           </div>
+          <div class="intro-copy-mask" aria-hidden="true"></div>
         </div>
 
         <div class="intro-globe-stage" aria-label="终局地球与五部族导线说明">
@@ -79,7 +101,7 @@
       <main class="layout">
         <section class="map-panel">
           <div class="map-frame">
-            <svg id="mapSvg" class="map-svg" viewBox="570 40 370 220" preserveAspectRatio="xMidYMid meet" overflow="visible">
+            <svg id="mapSvg" class="map-svg" viewBox="0 0 1000 500" preserveAspectRatio="xMidYMid meet" overflow="visible">
               <defs>
                 <filter id="glassBlur" x="-20%" y="-20%" width="140%" height="140%">
                   <feGaussianBlur stdDeviation="2.4" result="soft"></feGaussianBlur>
@@ -125,7 +147,7 @@
                   <feGaussianBlur in="SourceGraphic" stdDeviation="2"/>
                 </filter>
               </defs>
-              <image href="新版地图.png" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
+              <image id="mapBaseImage" href="新版地图.png" x="0" y="0" width="1000" height="500" preserveAspectRatio="none"></image>
               <g id="focusLayer"></g>
               <g id="flowLayer"></g>
               <g id="trailLayer"></g>
@@ -136,9 +158,15 @@
             </svg>
             <!-- 地图缩放控件（右上角） -->
             <div class="map-zoom-controls">
-              <button id="mapZoomIn" type="button" class="tree-ctrl-btn" title="放大">+</button>
-              <button id="mapZoomOut" type="button" class="tree-ctrl-btn" title="缩小">−</button>
-              <button id="mapZoomReset" type="button" class="tree-ctrl-btn" title="还原视角">↺</button>
+              <div class="map-control-row">
+                <button id="mapZoomIn" type="button" class="tree-ctrl-btn" title="放大">+</button>
+                <button id="mapZoomOut" type="button" class="tree-ctrl-btn" title="缩小">−</button>
+                <button id="mapPanLeft" type="button" class="tree-ctrl-btn" title="向左移动">←</button>
+                <button id="mapPanRight" type="button" class="tree-ctrl-btn" title="向右移动">→</button>
+              </div>
+              <div class="map-control-row map-control-row--reset">
+                <button id="mapZoomReset" type="button" class="tree-ctrl-btn" title="还原视角">↺</button>
+              </div>
             </div>
           </div>
           <div class="timeline-card">
@@ -195,6 +223,7 @@
       </main>
     </div>
 
+    <script src="data/branch-registry.js"></script>
     <script src="data/y4569-data.js"></script>
     <script src="app.js"></script>
   </body>

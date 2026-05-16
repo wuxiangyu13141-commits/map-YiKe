@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "updatedAt": "2026-05-16",
+  "branches": [
+    {
+      "branchCode": "c-y4569",
+      "rootBranchId": "Y4569",
+      "displayName": "C-Y4569",
+      "title": "父系C-Y4569 部族迁徙全景",
+      "pagePath": "./index.html",
+      "dataFile": "data/y4569-data.js",
+      "baseMapImage": "新版地图.png",
+      "status": "published",
+      "summary": "当前示例支系",
+      "sortOrder": 1
+    }
+  ]
+}

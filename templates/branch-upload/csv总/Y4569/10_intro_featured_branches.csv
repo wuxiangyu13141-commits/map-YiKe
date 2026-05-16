@@ -1,0 +1,6 @@
+﻿branch_id,display_order,callout_side,callout_slot,callout_lane,sankey_top,sankey_offset_x
+MF247416,1,right,0,0,104,-46
+BY182928,2,left,0,0,84,-14
+Y20085,3,left,1,1,18,-132
+Y20087,4,left,2,2,220,-14
+ZQ32,5,right,1,1,136,-86

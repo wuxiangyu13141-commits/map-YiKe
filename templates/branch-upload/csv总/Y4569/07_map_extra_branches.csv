@@ -1,0 +1,3 @@
+﻿branch_id,label,parent_id,age,map_age,center_lat,center_lon,radius,distribution,region_id,color,map_origin_id,tribe_label,tribe_lat,tribe_lon,id_lat,id_lon,ellipse_lon,ellipse_lat,ellipse_rx,ellipse_ry,ellipse_rotation,map_fill,map_opacity,map_stroke,direct_label
+F18202,F18202,Y4569,900,900,47.86,111.1,,,,#f3b3de,,蒙古,49.36,111.1,47.86,111.1,111.1,48.6,12.8,6.4,-4,#f3b3de,0.58,,true
+FT230267,FT230267,Y12782,500,500,43.5,85.52,,,,#6dd146,,克烈-阿巴克,45,85.52,43.5,85.52,85.52,44.2,4.6,2.7,8,#6dd146,0.84,"rgba(43, 57, 115, 0.95)",true
