@@ -224,8 +224,7 @@ const branchMap = new Map(data.branches.map((branch) => [branch.id, branch]));
 const sampleMap = new Map(data.samples.map((sample) => [sample.id, sample]));
 const compressedCommonPrefix = getCompressedCommonPrefix();
 const PLAYBACK_TOTAL_MS = 20000;
-const PRE_ORIGIN_PLAYBACK_FACTOR = 0.5;
-const POST_ORIGIN_PLAYBACK_FACTOR = 0.9;
+const TREE_PRE_ORIGIN_SHARE = 0.18;
 const TREE_ANNOTATION_BRANCH_IDS = ["MF247416", "BY182928", "Y20085", "Y20087", "ZQ32"];
 const TREE_SUPPRESSED_BRANCH_LABELS = new Set();
 const TREE_ALWAYS_LABEL_BRANCH_IDS = new Set(["Y4541", "Y12782", "MF317986", "MV154461", "Y20798"]);
@@ -484,21 +483,72 @@ function getBpAtTimelinePosition(position) {
   return timeline[leftIndex] + (timeline[rightIndex] - timeline[leftIndex]) * blend;
 }
 
+function getTimelinePositionForBp(bp) {
+  const maxBp = timeline[0] || 0;
+  const clampedBp = Math.max(0, Math.min(maxBp, bp));
+  if (clampedBp >= maxBp) {
+    return 0;
+  }
+  if (clampedBp <= 0) {
+    return timeline.length - 1;
+  }
+
+  for (let index = 0; index < timeline.length - 1; index += 1) {
+    const leftAge = timeline[index];
+    const rightAge = timeline[index + 1];
+    if (clampedBp > leftAge || clampedBp < rightAge) {
+      continue;
+    }
+    if (leftAge === rightAge) {
+      return index;
+    }
+    const blend = (leftAge - clampedBp) / Math.max(leftAge - rightAge, Number.EPSILON);
+    return index + blend;
+  }
+
+  return timeline.length - 1;
+}
+
+function getPlaybackAxisProgress(bp) {
+  return ageToTimelineFrac(bp);
+}
+
+function getBpForPlaybackAxisProgress(progress) {
+  const clampedProgress = Math.max(0, Math.min(1, progress));
+  const maxBp = timeline[0] || 0;
+
+  if (!originBranch) {
+    return maxBp * (1 - clampedProgress);
+  }
+
+  if (clampedProgress <= TREE_PRE_ORIGIN_SHARE) {
+    const preOriginShare = Math.max(TREE_PRE_ORIGIN_SHARE, Number.EPSILON);
+    const segmentProgress = clampedProgress / preOriginShare;
+    return maxBp - (maxBp - originAge) * segmentProgress;
+  }
+
+  const postOriginShare = Math.max(1 - TREE_PRE_ORIGIN_SHARE, Number.EPSILON);
+  const segmentProgress = (clampedProgress - TREE_PRE_ORIGIN_SHARE) / postOriginShare;
+  return Math.max(0, originAge * (1 - segmentProgress));
+}
+
 function updateAxisLabels() {
   const axisContainer = document.querySelector('.axis-labels');
   if (!axisContainer) return;
 
-  const lastIndex = timeline.length - 1;
-  const indices = [...new Set([0, Math.round(lastIndex * 0.5), lastIndex])];
+  const labelAges = originBranch
+    ? [timeline[0], originAge, 0]
+    : [timeline[0], getBpForPlaybackAxisProgress(0.5), 0];
+  const ages = [...new Set(labelAges.map((age) => Math.max(0, Math.round(age))))];
 
   axisContainer.innerHTML = '';
-  indices.forEach((idx, order) => {
+  ages.forEach((age, order) => {
     const span = document.createElement('span');
     span.className = 'axis-label';
     if (order === 0) span.classList.add('axis-label-start');
-    if (order === indices.length - 1) span.classList.add('axis-label-end');
-    span.style.setProperty('--pos', `${getTimelinePositionPercent(idx).toFixed(1)}%`);
-    span.textContent = idx === lastIndex ? '现代' : formatTime(timeline[idx]);
+    if (order === ages.length - 1) span.classList.add('axis-label-end');
+    span.style.setProperty('--pos', `${(getPlaybackAxisProgress(age) * 100).toFixed(1)}%`);
+    span.textContent = age === 0 ? '现代' : formatTime(age);
     axisContainer.appendChild(span);
   });
 }
@@ -506,10 +556,7 @@ function updateAxisLabels() {
 function updateOriginTimelineMarker() {
   if (!originBranch || !originMarker) return;
 
-  const originIndex = timeline.indexOf(originAge);
-  const originPosition = originIndex >= 0
-    ? getTimelinePositionPercent(originIndex)
-    : ((data.meta.timelineStartBP - originBranch.age) / data.meta.timelineStartBP) * 100;
+  const originPosition = getPlaybackAxisProgress(originBranch.age) * 100;
 
   originMarker.style.setProperty('--pos', `${originPosition.toFixed(1)}%`);
   if (originMarkerText) {
@@ -520,7 +567,7 @@ function updateOriginTimelineMarker() {
 function updateCurrentTimelineMarker(bp) {
   if (!currentTimelineMarker) return;
 
-  const pos = getTimelinePositionPercent(currentTimelinePosition);
+  const pos = getPlaybackAxisProgress(bp) * 100;
   currentTimelineMarker.style.setProperty('--pos', `${pos.toFixed(1)}%`);
   currentTimelineMarker.dataset.edge = pos < 12 ? 'start' : pos > 88 ? 'end' : 'center';
   if (currentTimelineMarkerText) {
@@ -539,8 +586,19 @@ let animationFrameId = null;
 let playbackLastTimestamp = null;
 const originStartIndex = getOriginStartIndex();
 
-slider.max = String(timeline.length - 1);
+slider.min = '0';
+slider.max = '1';
 slider.step = 'any';
+
+function syncTimelinePosition(position) {
+  currentTimelinePosition = Math.max(0, Math.min(timeline.length - 1, position));
+  currentIndex = Math.max(0, Math.min(timeline.length - 1, Math.round(currentTimelinePosition)));
+}
+
+function syncTimelinePositionFromBp(bp) {
+  syncTimelinePosition(getTimelinePositionForBp(bp));
+  slider.value = String(getPlaybackAxisProgress(bp));
+}
 
 // 追踪已显示过的分支，用于累积动画
 const displayedBranches = new Map(); // branchId -> bp (该分支首次激活时的bp值)
@@ -560,8 +618,8 @@ renderFocusFrame();
 setTimeout(render, 0);
 
 slider.addEventListener("input", () => {
-  currentTimelinePosition = Number(slider.value);
-  currentIndex = Math.max(0, Math.min(timeline.length - 1, Math.round(currentTimelinePosition)));
+  const nextBp = getBpForPlaybackAxisProgress(Number(slider.value));
+  syncTimelinePositionFromBp(nextBp);
   stopPlayback();
   render();
 });
@@ -576,9 +634,7 @@ timelinePlayButton.addEventListener("click", () => {
 
 jumpModernButton.addEventListener("click", () => {
   stopPlayback();
-  currentTimelinePosition = timeline.length - 1;
-  currentIndex = timeline.length - 1;
-  slider.value = String(currentTimelinePosition);
+  syncTimelinePositionFromBp(0);
   render();
 });
 
@@ -595,20 +651,11 @@ function updatePlayIcons(isPlaying) {
 
 function stopPlayback() {
   if (animationFrameId != null) {
-    window.clearInterval(animationFrameId);
+    window.cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
   }
   playbackLastTimestamp = null;
   updatePlayIcons(false);
-}
-
-// 宗族出现前加速跳过空白期，出现后保持略快于当前基准的节奏。
-function getTickInterval() {
-  const baseInterval = Math.round(PLAYBACK_TOTAL_MS / Math.max(timeline.length - 1, 1));
-  const speedFactor = currentTimelinePosition < getOriginStartIndex()
-    ? PRE_ORIGIN_PLAYBACK_FACTOR
-    : POST_ORIGIN_PLAYBACK_FACTOR;
-  return Math.max(120, Math.round(baseInterval * speedFactor));
 }
 
 function togglePlayback() {
@@ -619,28 +666,32 @@ function togglePlayback() {
   }
   // 未播放 → 从头开始播放；已到末尾则重置到0
   if (currentTimelinePosition >= timeline.length - 1) {
-    currentTimelinePosition = 0;
-    currentIndex = 0;
-    slider.value = '0';
+    syncTimelinePositionFromBp(timeline[0] || 0);
     render();
   }
   updatePlayIcons(true);
-  playbackLastTimestamp = performance.now();
-  animationFrameId = window.setInterval(() => {
-    const now = performance.now();
-    const elapsed = now - playbackLastTimestamp;
-    playbackLastTimestamp = now;
-    const stepDuration = getTickInterval();
-    const nextPosition = currentTimelinePosition + (elapsed / Math.max(stepDuration, 1));
-    currentTimelinePosition = Math.min(timeline.length - 1, nextPosition);
-    currentIndex = Math.max(0, Math.min(timeline.length - 1, Math.round(currentTimelinePosition)));
-    slider.value = String(currentTimelinePosition);
+  playbackLastTimestamp = null;
+  let playbackAxisProgress = Number(slider.value) || 0;
+  const playFrame = (timestamp) => {
+    if (animationFrameId == null) {
+      return;
+    }
+    if (playbackLastTimestamp == null) {
+      playbackLastTimestamp = timestamp;
+    }
+    const elapsed = timestamp - playbackLastTimestamp;
+    playbackLastTimestamp = timestamp;
+    playbackAxisProgress = Math.min(1, playbackAxisProgress + (elapsed / Math.max(PLAYBACK_TOTAL_MS, 1)));
+    const nextBp = getBpForPlaybackAxisProgress(playbackAxisProgress);
+    syncTimelinePositionFromBp(nextBp);
     render();
-    if (currentTimelinePosition >= timeline.length - 1) {
+    if (playbackAxisProgress >= 1 || currentTimelinePosition >= timeline.length - 1) {
       stopPlayback();
       return;
     }
-  }, 16);
+    animationFrameId = window.requestAnimationFrame(playFrame);
+  };
+  animationFrameId = window.requestAnimationFrame(playFrame);
 }
 
 function getOriginStartIndex() {
@@ -1874,7 +1925,6 @@ const SVG_TREE_PAD_L = 56;
 const SVG_TREE_PAD_R = 48;
 const SK_W_BRANCH = 9;
 const SK_W_SAMPLE = 4;
-const TREE_PRE_ORIGIN_SHARE = 0.18;
 
 let _svgInited = false;
 let _svgEl = null;
@@ -2841,6 +2891,18 @@ function highlightSampleOnMap(sample) {
     [76, 37],
     [74, 40],
   ];
+  const taiwanWireframe = [
+    [121.78, 24.39],
+    [121.18, 22.79],
+    [120.75, 21.97],
+    [120.22, 22.81],
+    [120.11, 23.56],
+    [120.69, 24.54],
+    [121.5, 25.3],
+    [121.95, 25],
+    [121.78, 24.39],
+  ];
+  const fallbackChinaFocusPaths = [chinaWireframe, taiwanWireframe];
   const worldBorderPaths = [];
   const chinaBorderPaths = [];
   const starField = Array.from({ length: 92 }, () => ({
@@ -3077,7 +3139,7 @@ function highlightSampleOnMap(sample) {
         const paths = geometryToPaths(feature.geometry);
         worldBorderPaths.push(...paths);
         const featureName = `${feature.properties?.name || ""}`.toLowerCase();
-        if (featureName.includes("china")) {
+        if (featureName.includes("china") || featureName.includes("taiwan")) {
           chinaBorderPaths.push(...paths);
         }
       });
@@ -3217,23 +3279,25 @@ function highlightSampleOnMap(sample) {
   }
 
   function drawChinaFocus(centerX, centerY, radius, globeRotation) {
-    drawGeoWireframe(chinaWireframe, centerX, centerY, radius, globeRotation, "rgba(156, 255, 196, 0.92)", 1.6);
-    const projected = chinaWireframe.map(([lon, lat]) => projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation));
-    const visible = projected.filter((point) => point.visible);
-    if (visible.length < 6) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.beginPath();
-    visible.forEach((point, index) => {
-      if (index === 0) ctx.moveTo(point.x, point.y);
-      else ctx.lineTo(point.x, point.y);
+    drawGeoWireframeSet(fallbackChinaFocusPaths, centerX, centerY, radius, globeRotation, "rgba(156, 255, 196, 0.92)", 1.6);
+    fallbackChinaFocusPaths.forEach((pathPoints) => {
+      const projected = pathPoints.map(([lon, lat]) => projectOnGlobe(lon, lat, centerX, centerY, radius, globeRotation));
+      const visible = projected.filter((point) => point.visible);
+      if (visible.length < 3) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.beginPath();
+      visible.forEach((point, index) => {
+        if (index === 0) ctx.moveTo(point.x, point.y);
+        else ctx.lineTo(point.x, point.y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = "rgba(46, 180, 110, 0.12)";
+      ctx.fill();
+      ctx.restore();
     });
-    ctx.closePath();
-    ctx.fillStyle = "rgba(46, 180, 110, 0.12)";
-    ctx.fill();
-    ctx.restore();
   }
 
   function quadraticBezierPoint(startX, startY, controlX, controlY, endX, endY, t) {
@@ -3596,9 +3660,7 @@ function highlightSampleOnMap(sample) {
       introFallbackTimer = 0;
     }
     stopPlayback();
-    currentTimelinePosition = 0;
-    currentIndex = 0;
-    slider.value = String(currentTimelinePosition);
+    syncTimelinePositionFromBp(timeline[0] || 0);
     render();
     document.body.classList.remove("intro-active");
   }
